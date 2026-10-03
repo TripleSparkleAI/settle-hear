@@ -1,0 +1,271 @@
+/* settle-hear/react · the hero symphony's DJ visualiser. The panel is chrome (red light: --ink, --prime, a near-black
+   ground); the DJ's lights are a SETTLE picture and wear the neon code. Every colour is a variable with a fallback,
+   so the visualiser also works outside the SETTLE site. It sits bottom left in the hero, above the caption and clear
+   of the fixed footer strip (--foot-strip); a page moves it with the style prop, or asks for the ONE-LINE mini
+   (the line prop, .dj-mini--line at the end of this file) and lays it along an edge. */
+
+.dj {
+  --dj-ink: var(--ink, #ffa850);
+  --dj-hi: var(--ink-hi, #ffbc50);
+  --dj-dim: var(--ink-2, #c98b78);
+  --dj-red: var(--prime, #ff2b1c);
+  --dj-ground: rgba(8, 3, 2, 0.88);
+  --dj-rule: var(--hair, rgba(255, 90, 60, 0.22));
+  --dj-yes: var(--neon-yes, #ff4f8b);
+  --dj-no: var(--neon-no, #5b5bff);
+  --dj-lean: var(--neon-lean, #ffb000);
+  --dj-held: var(--neon-held, #d6f3ff);
+  position: absolute;
+  left: var(--gutter, 16px);
+  bottom: calc(var(--foot-strip, 0px) + 72px);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: calc(100% - 2 * var(--gutter, 16px));
+  font-family: var(--mono, ui-monospace, Menlo, monospace);
+  font-size: 12px;
+  color: var(--dj-ink);
+  /* the root is a flex column as wide as its longest child, so its own box is mostly empty: it takes no clicks, and a
+     click there reaches the picture and closes the panel (lane DJRATELINE) */
+  pointer-events: none;
+}
+.dj > * { pointer-events: auto; }
+.dj .mono { font-family: var(--mono, ui-monospace, Menlo, monospace); }
+.dj-dim { color: var(--dj-dim); }
+.dj-theme { color: var(--dj-theme, var(--dj-red)); font-weight: 700; letter-spacing: 0.08em; }
+
+/* ── the mini ── */
+.dj-mini {
+  display: grid;
+  gap: 4px;
+  min-width: 250px;
+  min-height: 44px;
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--dj-ground);
+  border: 1px solid var(--dj-rule);
+  border-left: 2px solid var(--dj-theme, var(--dj-red));
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+}
+.dj-mini:hover { border-color: var(--dj-red); }
+.dj-mini:focus-visible { outline: 2px solid var(--dj-hi); outline-offset: 2px; }
+.dj-mini__row { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
+.dj-mini__row b { color: var(--dj-red); letter-spacing: 0.14em; }
+.dj-mini__open { margin-left: auto; color: var(--dj-hi); }
+.dj-mini__mode { color: var(--dj-hi); text-transform: uppercase; letter-spacing: 0.1em; font-size: 11px; }
+
+/* ── the lights ── */
+.dj-lights { display: inline-flex; gap: 4px; }
+.dj-light {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--dj-no);
+  background: rgba(91, 91, 255, 0.18);
+  transition: background 0.18s, box-shadow 0.18s;
+}
+.dj-light.is-yes { background: var(--dj-yes); border-color: var(--dj-yes); box-shadow: 0 0 8px var(--dj-yes); }
+.dj-light.is-held { outline: 1px solid var(--dj-held); outline-offset: 1px; }
+.dj-light__k { font-size: 0; }
+.dj-light--lg { width: 18px; height: 18px; flex: none; }
+.dj-light--lg .dj-light__k { font-size: 9.5px; color: #0d0806; font-weight: 700; }
+.dj-light--lg:not(.is-yes) .dj-light__k { color: var(--dj-no); }
+
+/* ── the harmonics ── */
+.dj-harm { display: inline-flex; align-items: flex-end; gap: 2px; height: 18px; }
+.dj-harm__bar { position: relative; width: 6px; background: rgba(255, 90, 60, 0.18); }
+.dj-harm__bar.is-on { background: var(--dj-theme, var(--dj-red)); box-shadow: 0 0 6px var(--dj-theme, var(--dj-red)); }
+.dj-harm__bar i { display: none; }
+.dj-view .dj-harm { height: 34px; gap: 4px; }
+.dj-view .dj-harm__bar { width: 14px; }
+.dj-view .dj-harm__bar i { display: block; position: absolute; bottom: -14px; width: 100%; text-align: center; font-style: normal; font-size: 9.5px; color: var(--dj-dim); }
+
+/* ── the open view: a header row (the title and the close glyph) that stays put, and a body that scrolls inside the
+   cap the React part measures (style maxHeight, djRoom in src/popup.js); the CSS max-height is the fallback before
+   the first measure. An opaque ground, so the hero's own lines under it never read through. ── */
+.dj-view {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: min(640px, calc(100vw - 2 * var(--gutter, 16px)));
+  max-height: calc(100svh - var(--head-h, 64px) - var(--foot-strip, 0px) - 180px);
+  background: rgba(8, 3, 2, 0.97);
+  backdrop-filter: blur(4px);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.9);
+  transform-origin: bottom left;
+  animation: dj-in 0.16s ease-out both;
+}
+.dj-view--closing { animation: dj-out 0.16s ease-in both; pointer-events: none; }
+@keyframes dj-in { from { opacity: 0; transform: translateY(6px) scaleY(0.96); } }
+@keyframes dj-out { to { opacity: 0; transform: translateY(6px) scaleY(0.96); } }
+.dj-view__head { flex: none; display: flex; align-items: flex-start; gap: 10px; padding: 10px 10px 8px 14px; }
+.dj-view__title { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.dj-view__title b { color: var(--dj-red); letter-spacing: 0.1em; font-size: 12.5px; }
+.dj-view__title .dj-dim { font-size: 11px; }
+.dj-view__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 90, 60, 0.45) transparent;
+}
+.dj-view__body::-webkit-scrollbar { width: 6px; }
+.dj-view__body::-webkit-scrollbar-thumb { background: rgba(255, 90, 60, 0.45); border-radius: 3px; }
+.dj-view__note { margin: 0 0 6px; font-size: 11px; }
+.dj-sec { border-top: 1px solid var(--dj-rule); padding: 8px 0; }
+.dj-sec h3 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.14em; color: var(--dj-hi); font-weight: 700; }
+.dj-sec p { margin: 4px 0; }
+.dj-sec--two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 560px) { .dj-sec--two { grid-template-columns: 1fr; } }
+
+.dj-trace { display: grid; gap: 2px; margin: 6px 0; }
+.dj-trace__row { display: grid; grid-template-columns: 7.5em auto 3em; justify-content: start; align-items: center; gap: 8px; }
+.dj-trace__name { font-size: 10px; color: var(--dj-dim); letter-spacing: 0.06em; }
+/* one column a sweep (traceColumns in src/popup.js), so the track is exactly as wide as its sweeps; a cell the
+   reveal has not reached draws nothing, rather than a dark run that reads as missing data */
+.dj-trace__cells { display: grid; gap: 1px; height: 10px; }
+.dj-trace__cell { background: transparent; }
+.dj-trace__cell.is-yes { background: var(--dj-yes); }
+.dj-trace__cell.is-no { background: rgba(91, 91, 255, 0.45); }
+.dj-trace__p { text-align: right; color: var(--dj-hi); }
+.dj-trace__axis { font-size: 10px; color: var(--dj-dim); padding-left: calc(7.5em + 8px); }
+
+.dj-leans { display: grid; gap: 4px; }
+.dj-leans { gap: 6px; }
+.dj-lean { display: grid; grid-template-columns: 18px minmax(10em, 15em) 5.5em minmax(0, 1fr); column-gap: 10px; row-gap: 2px; align-items: start; line-height: 1.35; }
+.dj-lean > .dj-light { margin-top: 0; }
+@media (max-width: 560px) { .dj-lean { grid-template-columns: 18px minmax(0, 1fr) 5.5em; } .dj-lean .dj-why { grid-column: 2 / -1; } }
+.dj-lean__q { color: var(--dj-ink); }
+.dj-lean__v { color: var(--dj-lean); }
+.dj-why { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 10.5px; line-height: 1.5; min-width: 0; }
+.dj-why .is-up { color: var(--dj-lean); }
+.dj-why .is-down { color: var(--dj-dim); }
+/* the visitor's own lean (the steering, lane RATELOOK): marked so a reader sees their hand in the decision */
+.dj-why .is-you { font-weight: 600; color: var(--dj-ink); text-decoration: underline dotted; text-underline-offset: 2px; }
+.dj-pulls { font-size: 10.5px; color: var(--neon-pull, #22e6ff) !important; }
+
+.dj-in { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.dj-in li { display: grid; grid-template-columns: 6.5em 1fr auto; gap: 8px; align-items: center; }
+.dj-meter { height: 6px; background: rgba(255, 90, 60, 0.12); }
+.dj-meter i { display: block; height: 100%; background: var(--dj-red); }
+
+.dj-strip { position: relative; display: flex; gap: 2px; height: 34px; margin: 6px 0; border-bottom: 1px solid var(--dj-rule); }
+.dj-strip--empty { display: block; height: auto; border: 0; color: var(--dj-dim); }
+.dj-strip__note { position: relative; flex-basis: 0; height: 100%; }
+.dj-strip__note i { position: absolute; left: 0; right: 0; height: 5px; background: var(--dj-theme, var(--dj-red)); }
+
+.dj-toggles { border-top: 1px solid var(--dj-rule); padding-top: 8px; }
+.dj-toggles summary { cursor: pointer; color: var(--dj-hi); letter-spacing: 0.08em; min-height: 24px; }
+.dj-toggles summary:focus-visible { outline: 2px solid var(--dj-hi); }
+.dj-toggles__grid { display: grid; grid-template-columns: 7em 1fr; gap: 6px 10px; align-items: center; margin-top: 8px; }
+.dj-k { color: var(--dj-dim); }
+.dj-checks { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.dj-checks label { display: inline-flex; gap: 4px; align-items: center; min-height: 24px; }
+.dj-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.dj-seg button, .dj-btn {
+  min-height: 24px;
+  padding: 2px 8px;
+  font: inherit;
+  color: var(--dj-ink);
+  background: transparent;
+  border: 1px solid var(--dj-rule);
+  cursor: pointer;
+}
+.dj-seg button.is-on { color: #0d0806; background: var(--dj-red); border-color: var(--dj-red); }
+.dj-seg button:hover, .dj-btn:hover { border-color: var(--dj-red); color: var(--dj-hi); }
+.dj-seg button.is-on:hover { color: #0d0806; }
+.dj-seg button:focus-visible, .dj-btn:focus-visible { outline: 2px solid var(--dj-hi); outline-offset: 1px; }
+.dj input[type='range'] { accent-color: var(--dj-red); }
+.dj input[type='checkbox'] { accent-color: var(--dj-red); }
+
+@media (max-width: 700px) {
+  /* on a phone the gamma console takes the bottom of the hero, so the DJ hangs from under the readout and opens
+     downward */
+  .dj { bottom: auto; top: 172px; flex-direction: column-reverse; }
+  .dj-view { max-height: calc(100svh - var(--head-h, 64px) - var(--foot-strip, 0px) - 260px); }
+  .dj-mini { min-width: 0; }
+  .dj-mini__row { max-width: 64vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dj-light { transition: none; }
+  .dj-view,
+  .dj-view--closing { animation: none; }
+}
+
+/* ── the one-line mini (line prop): THE DJ as a single strip, for a page that lays it along an edge ── */
+.dj-mini.dj-mini--line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.dj-mini--line > * { flex: none; }
+.dj-mini--line b { color: var(--dj-red); letter-spacing: 0.14em; }
+.dj-line__sep { color: var(--dj-dim); }
+.dj-line__mode { color: var(--pink, var(--dj-red)); letter-spacing: 0.1em; text-transform: uppercase; font-size: 11px; }
+.dj-line__tune { flex: 1 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* the hero's bag and item (lane HEROSHUFFLE): the site passes it as onAir; it keeps its words and gives way last */
+.dj-line__onair { color: var(--dj-theme, var(--dj-red)); white-space: nowrap; }
+.dj-mini--line .dj-mini__open { margin-left: auto; }
+
+/* THE HOUSE SET (lane HOUSEDJ): the passes playing now, in the DJ view */
+.dj-house__list { margin: 4px 0; padding-left: 18px; display: grid; gap: 3px; }
+.dj-house__list li { font-size: 12px; line-height: 1.4; }
+.dj-house__list b { color: var(--dj-hi); letter-spacing: 0.04em; }
+
+/* the DJ view's close glyph (lane DJRATELINE): a small round x on the title row, top right; the glyph brightens and a
+   faint round tint comes up behind it on hover; no bar, no native tooltip */
+.dj-x {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: -4px -2px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dj-dim);
+  font: 400 18px/1 var(--mono, ui-monospace, monospace);
+  cursor: pointer;
+  transition: color 0.12s, background-color 0.12s;
+}
+.dj-x:hover { color: var(--dj-hi, #fff); background: rgba(255, 255, 255, 0.08); }
+.dj-x:focus-visible { color: var(--dj-hi, #fff); outline: 2px solid var(--dj-hi, #fff); outline-offset: 2px; }
+
+/* THE HOUSE DJ (lane SETTLEDJ): the arc strip, the plans, the sources, the ABC, the tag */
+.dj-arc { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.dj-arc__s { padding: 2px 6px; border: 1px solid var(--dj-rule); font-size: 10px; letter-spacing: 0.1em; color: var(--dj-dim); }
+.dj-arc__s.is-on { color: #0d0806; background: var(--dj-theme, var(--dj-yes)); border-color: var(--dj-theme, var(--dj-yes)); }
+.dj-arc__s.is-next { border-style: dashed; color: var(--dj-ink); }
+.dj-plans { margin: 4px 0; padding-left: 1.4em; display: grid; gap: 2px; font-size: 10.5px; }
+.dj-plans li { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--dj-dim); }
+.dj-plans li.is-on { color: var(--dj-ink); font-weight: 600; }
+.dj-src { margin: 2px 0 4px; padding-left: 1.2em; }
+.dj-abc pre { margin: 4px 0; padding: 6px; max-height: 12em; overflow: auto; font: 400 10px / 1.35 var(--mono, monospace); background: rgba(255, 90, 60, 0.06); white-space: pre-wrap; }
+.dj-abc summary { cursor: pointer; }
+.dj-meter--inline { display: inline-block; width: 5em; vertical-align: middle; }
+.dj-tag { word-break: break-all; }
+.dj-line__tag { white-space: nowrap; }
+@media (max-width: 560px) { .dj-line__tag { display: none; } }
+/* the open DJ view sits above the rate line and its glyphs (lane SETTLEDJ: they drew over the panel at 390) */
+.dj.dj--open { z-index: 12; }
+/* THE OPENING BLEND (lane OPENINGSET): the arc's slots, the one playing now in the DJ's highlight */
+.dj-opener__arc { margin: 4px 0 6px; padding-left: 18px; font-size: 12px; line-height: 1.5; }
+.dj-opener__arc li.is-now { color: var(--dj-hi); font-weight: 700; }
