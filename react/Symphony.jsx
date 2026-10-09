@@ -3,7 +3,8 @@
 //
 // <claudes_code_comments>
 // ** Function List **
-// useSymphony(opts)           - one symphony for a component: { symphony, state }; disposed on unmount
+// useSymphony(opts)           - one symphony for a component: { symphony, state }; disposed on unmount; its house
+//                               sets come from THE DJ's trained models (lane DJWIRE: the djBrain store, dj-brain.js)
 // useHouseLive()             - settle-hear's houseLive store as React state: { house, audible, chain }
 // HeroSymphony's big view is a popup (djPopupStep, src/popup.js): outside pointerdown, Escape, the x, closeWhen
 // HouseChain({ house })       - THE HOUSE SET in the DJ view: the passes playing now, each with its plain line
@@ -40,6 +41,7 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createSymphony, TRACKS, MINOR_MODES, rootMidiOf } from '../src/symphony.js';
+import { djBrain } from '../src/dj-brain.js'; // THE TRAINED DJ (lane DJWIRE): the hero's house sets come from the trained models
 import { DJ_CHOICES, DJ_PULLS } from '../src/dj.js';
 import { THEMES } from '../src/themes.js';
 import { FLUTE_MODE_NAME, FLUTE_MODE_ALIAS, midiHz } from '../src/tuning.js';
@@ -63,7 +65,7 @@ export function useSymphony({ seed, theme, level, playing, tracks, house, pure, 
   const ref = useRef(null);
   const [state, setState] = useState(null);
   useEffect(() => {
-    const s = createSymphony({ seed, theme, level, tracks, house: !!house, pure: !!pure, opener: opener !== false, influenceStorage: influenceStore(), playing: playing ?? !reduced(), bases: bases ?? null });
+    const s = createSymphony({ seed, theme, level, tracks, house: !!house, pure: !!pure, opener: opener !== false, influenceStorage: influenceStore(), playing: playing ?? !reduced(), bases: bases ?? null, djBrain });
     ref.current = s;
     setState(s.state);
     const off = s.subscribe(setState);
@@ -557,6 +559,20 @@ export function HeroSymphony({ stats, playing, level, seed, theme, tracks, style
           <DJLights decision={d} size={8} reveal={open ? reveal : 999} />
           <span className="dj-line__sep" aria-hidden="true">·</span>
           <span className="dj-mini__mode">{state?.opener?.on ? 'opening blend' : state?.mix ? state.mix.sectionLabel.toLowerCase() : state?.pure ? 'pure flute' : d?.mode ?? 'waiting'}{state?.house?.on && !state?.opener?.on ? ' · house' : ''}</span>
+          {state?.fx && !state.fx.held && (
+            // THE DJ'S DESK (lane DJFX): the mood playing, and an overdo marked while its phrase lasts
+            <span className={`dj-line__fx${state.fx.overdo ? ' dj-line__fx--over' : ''}`} title={`the DJ's effects: ${state.fx.moodLabel}, ${state.fx.flavour.drive} drive, ${state.fx.flavour.band} ${state.fx.flavour.q} resonance`}>
+              <span className="dj-line__sep" aria-hidden="true">·</span>
+              {state.fx.moodLabel}{state.fx.overdoLabel ? ` · ${state.fx.overdoLabel}` : ''}
+            </span>
+          )}
+          {state?.fx?.colourLabel && (
+            // THE DJ's OVERDRIVE AND VOCODER (lane DJOVERDRIVE): a voice's overdrive or vocoder, named while it sounds
+            <span className="dj-line__fx dj-line__colour" title="THE DJ's colour on one voice: a harmonic overdrive, a vocoder">
+              <span className="dj-line__sep" aria-hidden="true">·</span>
+              {state.fx.colourLabel}
+            </span>
+          )}
           <span className="dj-line__tune dj-dim">
             <span className="dj-line__sep" aria-hidden="true">·</span>
             {status(state)}{lineTune(state)}

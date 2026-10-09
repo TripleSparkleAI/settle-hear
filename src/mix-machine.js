@@ -12,7 +12,9 @@
 // THEME_MIX                   - each theme's extra lean on each thing
 // MIX_STEER                   - which visitor control leans which thing, and how hard (the glyph row's map)
 // LAYER_WEIGHT                - each layer's share of the energy level
-// mixLeans(ctx)               - every thing's lean as named parts: section, mood, theme, you, votes, holding
+// TRAINED_LEAN                - the trained grid's lean on a thing it decides (lane DJWIRE)
+// mixLeans(ctx)               - every thing's lean as named parts: section (or the trained set), mood, theme, you,
+//                               votes, holding
 // settleBits(keys, h, pulls, start, r, opts) - the generic p-bit settle: Gibbs sweeps from hot to cold, clamps held;
 //                               returns { yes, pYes, trace }
 // energyOf(yes, section)      - the energy level 0..1 a set of layers makes
@@ -96,12 +98,15 @@ export const MIX_STEER = {
 };
 const STEER = 3.0;
 const HOLD = 2.6;
+// lane DJWIRE: the trained grid's lean on a thing it decides, as strong as a peak's lean on the drums
+export const TRAINED_LEAN = 2.4;
 
 export const LAYER_WEIGHT = { drums: 0.32, bass: 0.22, arps: 0.13, lead: 0.11, pad: 0.06, answer: 0.05, chain: 0.07, drone: 0.02, texture: 0.02 };
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
-// ctx: { section, changed (a section change this bar), onLine (a 4-bar line), prev (last yes), mood, theme, steer, votes }
+// ctx: { section, changed (a section change this bar), onLine (a 4-bar line), prev (last yes), mood, theme, steer, votes,
+//   trained (lane DJWIRE: { thing: bool } for the things the trained set decides, or null) }
 export function mixLeans(ctx = {}) {
   const sec = SECTION_LEANS[ctx.section] ?? SECTION_LEANS.intro;
   const mood = ctx.mood ?? {};
@@ -111,7 +116,10 @@ export function mixLeans(ctx = {}) {
   const out = {};
   for (const k of MIX_KEYS) {
     const parts = [];
-    parts.push({ why: `section ${ctx.section ?? 'intro'}`, v: sec[k] ?? 0 });
+    // THE TRAINED SET (lane DJWIRE): for the things the trained grid decides, its block's on or off replaces the
+    // section's lean; everything after it (the picture, the theme, you, the votes, the holding) is unchanged
+    if (ctx.trained && Object.hasOwn(ctx.trained, k)) parts.push({ why: 'the trained set', v: ctx.trained[k] ? TRAINED_LEAN : -TRAINED_LEAN });
+    else parts.push({ why: `section ${ctx.section ?? 'intro'}`, v: sec[k] ?? 0 });
     let m = 0;
     if (k === 'drums') m += 0.8 * heat + (mood.film ? 0.4 : 0);
     if (k === 'bass') m += 0.5 * heat;

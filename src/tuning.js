@@ -7,6 +7,7 @@
 // FLUTE_MODE_NAME       - the mode's name, one string (the spelling of McKusker is unconfirmed; change it here only)
 // FLUTE_MODE_ALIAS      - the second name the navigator gave the same mode
 // FLUTE_SOUND_NAME      - the flute as a SOUND, apart from any light: 'the McKusker flute' (one string, spelling unconfirmed)
+// MCKUSKER_MODE_NAME    - the tag the hero's tags row shows while the flute plays: '432 Hz McKUSKER MODE' (one string)
 // midiHz(midi)          - equal temperament from A4 = 432: midi 69 is exactly 432 Hz
 // noteHz(name)          - 'A4', 'C#5', 'Bb3' -> Hz (NaN for a name it cannot read)
 // pitchClass(name)      - 'C' -> 0 ... 'B' -> 11, with sharps and flats
@@ -34,6 +35,10 @@ export const FLUTE_MODE_NAME = '40 Hz AND 432 Hz FLUTE MODE';
 export const FLUTE_MODE_ALIAS = 'the McKusker mode';
 // the sound alone (navigator, 2026-10-01): "McKusker flute" names a sound and never the 40 Hz light
 export const FLUTE_SOUND_NAME = 'the McKusker flute';
+// the flute's own tag (navigator, 2026-10-05: "when there is a melody playing that we call flute, or a 'clear simple
+// melody', this is McKusker mode, 432 Hz: call it 432 Hz McKUSKER MODE"). A name, shown as written in every language;
+// the spelling of McKusker is unconfirmed, so it lives here with the two names above and nowhere else
+export const MCKUSKER_MODE_NAME = '432 Hz McKUSKER MODE';
 
 export function midiHz(midi) {
   const m = Number(midi);

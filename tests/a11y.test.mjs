@@ -39,7 +39,7 @@ test('every mixer slider and the master fader speak their value with its unit', 
   assert.match(mixer, /aria-valuetext=\{max > 1 \? U\.hertz\(value\) : U\.percent\(value\)\}/);
   assert.match(mixer, /type="range"/);
   const master = between('export function MasterFader', '\nexport function useGammaSound');
-  assert.match(master, /aria-valuetext=\{U\.percent\(v\)\}/);
+  assert.match(master, /aria-valuetext=\{U\.level\(v\)\}/, 'the master speaks its level 0 to 1 (lane VOLUMECURVE)');
   assert.match(master, /aria-label=\{label\}/);
 });
 

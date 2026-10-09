@@ -18,7 +18,7 @@ formulas, in prose: `wikis/WIKI_DJ_THEORY/04-THE-BASE-FORMAT.md`.
  ├─ origin     "midi" | "authored" | "combined"
  ├─ tempo      { bpm: 122, min: 115, max: 129 }
  ├─ meter      { num: 4, den: 4 }
- ├─ grid       4                        ticks a beat: 4 (sixteenths) for house, 8 for ambient
+ ├─ grid       4                        ticks a beat: 4 (sixteenths) for house, 8 for ambient, as a rule
  ├─ swing      0.14                     the lateness of every odd tick, as a fraction of a tick, 0..0.3
  ├─ key        { pc: 9, mode: "aeolian", name: "A aeolian", confidence: 0.81 } | null
  ├─ bars       16
@@ -80,8 +80,9 @@ Krumhansl-Kessler profiles; the best correlation is the key and its value the co
 ## The families
 
 house: `chicago deep acid garage disco tech progressive filter-house dub-techno balearic breaks funk afro latin
-electro trance`. ambient: `ambient drone pulse chorale piano bells field downtempo`. The ten the DJ's brain names
-(`mix-dj.js THEME_DRUMS`) are among the house ones, so a brain choice maps straight onto a base family.
+electro trance`. ambient: `ambient drone pulse chorale piano bells field downtempo`. The ten families the DJ's brain
+names (`mix-dj.js THEME_DRUMS`: nine house families and `ambient`) are all in these lists, so a brain choice maps
+straight onto a base family.
 `familyOf()` reads the family from the numbers (wiki page 04 gives the rules); an authored base is born with its
 family.
 
@@ -124,3 +125,5 @@ rescaled to the finest grid. The same part from two slices is the later one's un
 holds it whole and loads a base file only when a slice is wanted. `bases/ledger.json` and `bases/LEDGER.md` hold
 the source of every base: title, author, url, licence and its text, download date and sha256 for a midi base; the
 recipe, seed, version and the theory line for an authored base. A base file never names its source.
+`LEDGER.md` prints the first 16 hex digits of each sha256; `ledger.json` keeps all 64 and the licence text. Both
+ledgers and `bases/BUILD.md` (the last build's report) are written by `tools/bases_build.mjs`; never edit them by hand.

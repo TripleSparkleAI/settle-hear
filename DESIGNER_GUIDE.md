@@ -4,8 +4,8 @@ This guide is for a sound designer and a visual designer. You can change every s
 every colour and every panel described here without knowing how the settling works. The short machine-learning
 appendix at the end explains the settling for anyone curious. Nothing in the main part depends on it.
 
-Every file named here sits in `experiments/thermosim/`. The sound lives in `settle-hear/`, the picture in
-`settle-see/`, and the site that shows both in `sites/settle-site/`.
+Every file named here sits in `SETTLE/`. The sound lives in `settle-hear/`, the picture in
+`settle-see/`, and the site that shows both in `SETTLE/settle-site/`.
 
 ## 1 · What happens, in one picture
 
@@ -39,7 +39,9 @@ The sound is called the **40 Hz AND 432 Hz FLUTE MODE**, also "the McKusker mode
 in `settle-hear/src/tuning.js` (`FLUTE_MODE_NAME`, `FLUTE_MODE_ALIAS`). The spelling of McKusker is not confirmed;
 change it there and every label follows.
 
-It is the hero's default sound. Three things can silence it:
+On the site the symphony is in the hero's default sound, DEFAULT MODE: there it plays through the house passes,
+under the picture's own static and the binaural pair (the README's "The house set and THE PASSES"). It is also a
+sound of its own in the hero's sound list. Three things can silence it:
 
 1. **The browser.** No page may play sound before the visitor clicks, taps or presses a key. Until then the DJ
    still decides and the visualiser still moves; the panel says "starts on your first click or key press".
@@ -66,13 +68,18 @@ sample files. The code is `settle-hear/src/instruments.js` (the voices) and `set
 | layer | what it is | when it plays | knobs (file, name) |
 |---|---|---|---|
 | binaural pair | one sine in the left ear, one in the right, a few hertz apart | always, unless switched off | `makeBinaural`: level 0.18; glide 4 s on a change |
-| drone | pipes (two buzzy sawtooths on the root and its fifth, a third an octave down, through a 1.2 kHz lowpass) or pad (soft triangles and sines, 700 Hz lowpass) | always, louder in drone mode | `makeDrone`: kind, the 3/2 fifth, levels 0.35 / 0.22 / 0.3 |
-| flute | the prime voice: a sine, a quiet second harmonic, a breath at the start, a slow vibrato | in tune mode | `NOTES.flute`: attack 60 ms, release 120 ms, vibrato 5.2 Hz about 6 cents after 0.18 s, breath 60 ms |
-| fiddle | a sawtooth through a 900 Hz body peak and a 2.4 kHz lowpass, faster vibrato | doubles the tune an octave down on every other bar, in themes that have a fiddle | `NOTES.fiddle`: attack 40 ms, vibrato 6 Hz |
-| harp | a plucked string: bright attack, a ring of about a second | broken chords under the tune, by the theme's density | `NOTES.harp`: attack 5 ms, ring 0.6 to 1.6 s |
+| drone | pipes (two buzzy sawtooths on the root and its fifth, a third an octave down, through a 1.1 kHz lowpass) or pad (soft triangles and sines, 700 Hz lowpass) | always, louder in drone mode | `makeDrone`: kind, the 3/2 fifth, levels 0.35 / 0.22 / 0.3 |
+| flute | the prime voice, the clear flute: a sine, a quiet triangle an octave up, a faint third harmonic, a breath chiff at the start, a faint steady breath, a slow vibrato | in tune mode | `FLUTE_BODY.clear`: attack 45 ms, release 120 ms, vibrato 5.2 Hz about 6 cents after 0.18 s, chiff at 4 times the pitch |
+| fiddle | two sawtooths a few cents apart through a 900 Hz body peak and a 2.2 kHz lowpass, faster vibrato | doubles the tune an octave down on every other bar, in themes that have a fiddle | `NOTES.fiddle`: attack 60 ms, release 200 ms, vibrato 6 Hz |
+| harp | a plucked string: a triangle and a sine an octave up, a soft lowpass, a ring of about a second | broken chords under the tune, by the theme's density | `NOTES.harp`: attack 8 ms, ring 0.6 to 1.6 s |
 | bells | a struck bar: partials 1, 2.76, 5.4 | now and then at a bar start; a soft bell on each new film frame | `NOTES.bells`: 2.4 s ring |
 | crystal | struck glass: partials 1 and 3.01, very soft | now and then; glints on the held harmonics | `NOTES.crystal`: 3 s shimmer |
 | harmonics | up to seven sines at 1, 2, 3 ... 7 times the drone's root, each fading in one after another | static mode only | `makeHarmonics`: each partial at 0.12 / k, a stagger of one beat |
+
+Three more instruments carry melodies: the distorted flute (`flute-drive`), the lo-fi keys (`keys`, a felt electric
+piano) and the soft pluck (`pluck`). Every melodic instrument except the clear flute plays through its own chain of
+effects, a warm drive first and then two to four more, dealt per set. The README's "THE VOICE CHAINS" sections say
+which effects and how they are chosen.
 
 The level of each instrument inside a theme is the theme's `instruments` mix (section 6). The whole symphony has
 one level (0.55 by default) and sits under the site's master and its limiter, so nothing can clip.
@@ -162,7 +169,8 @@ beside each light, so you can always see why. Every part lives in one function, 
 | | a film plays | +0.5 | |
 | | droning long | -0.15 a bar, up to 16 | |
 
-Each theme adds its own `bias` to these (section 6). The picture's numbers are read by `readHero()` in the same
+Each theme adds its own `bias` to these (section 6). A visitor's steering adds one more part, `you`, worth up to 3
+either way (`STEER_LEAN`). The picture's numbers are read by `readHero()` in the same
 file: **heat** (the temperature on a log scale, 0 hot to 1, from 3.0 down to 0.45), **overlap** (how much of the
 word is formed, 0 to 1), **flips** (the share of lights that flipped, 0 to 1), **landed** (the picture has formed and
 holds), and what it shows (**a word** and its letters, **a shape**, or **a film** and its frame).
@@ -255,16 +263,26 @@ world melodies, tuning, harmonics, instruments).
 
 ### 7.2 · The tunes today
 
-| tune | from | tags |
-|---|---|---|
-| Dies irae (first strophe) | GregoBase chant 3441, Vatican version, CC0 | chant, ancient, slow, air |
-| Veni Creator Spiritus (first stanza) | GregoBase chant 3431, Vatican version, CC0 | chant, ancient, slow, air |
-| Ave maris stella (Little Office tune) | GregoBase chant 3285, Vatican version, CC0 | chant, ancient, slow, air |
-| Sakura (voice part) | Collection of Japanese Koto Music, Tokyo Academy of Music, 1888, No. 2 | ancient, air, slow |
+397 tunes on 2026-10-05. Each source has its own file in `settle-hear/src/tunes/` (28 files, 25 of them holding
+tunes; `gow1784`, `manx` and `scandinavian` are still empty), and `src/tunes/index.js` joins them into one list. The
+largest sources:
 
-Scottish Highland fiddle and pipe tunes are owed: each needs its printed collection and page checked against a
-scan before it goes in. When no tune suits a theme, the flute plays a short phrase made from the theme's own scale.
-The panel then says "generated from the scale, not an old tune". Nothing generated is ever given a book.
+| source | tunes | licence basis |
+|---|---|---|
+| O'Neill's Music of Ireland (1903) | 125 | printed before 1929 |
+| The Athole Collection of the Dance Music of Scotland | 64 | printed before 1929 |
+| Ancient Irish Music (Joyce, 1873) | 29 | printed before 1929 |
+| Graduale Romanum (Vatican, 1908), through GregoBase | 28 | CC0 dataset |
+| The Petrie Collection of the Ancient Music of Ireland (1855) | 20 | printed before 1929 |
+| The Tutor for the Highland Bagpipe (McKay, 1878) | 19 | printed before 1929 |
+
+The rest come from Scottish, Irish, Welsh, Breton, English, Japanese and Greek sources and more chant. By tag, 202
+tunes are Irish, 126 Highland, 124 Scottish and 51 chant (a tune can carry several tags). Count them again rather
+than quoting these numbers: `node -e "import('./src/tunes.js').then(m => console.log(m.TUNES.length))"` in
+`settle-hear/`. Each book's notes and the link to its scan are in `wikis/WIKI_OLD_MELODIES/books/`.
+
+When no tune suits a theme, the flute plays a short phrase made from the theme's own scale. The panel then says
+"generated from the scale, not an old tune". Nothing generated is ever given a book.
 
 ### 7.3 · How a tune is placed
 
@@ -274,7 +292,9 @@ then by whole octaves so its middle note sits near G5, where the flute sounds be
 ### 7.4 · How to add a tune
 
 1. Write the melody in ABC (the subset below) from the named source.
-2. Add a block to `TUNES` in `tunes.js`:
+2. Add a block to `TUNES` in the source's own file in `src/tunes/` (a new book gets a new file, with its `SOURCE`,
+   imported in `src/tunes/index.js`). The files spread `SOURCE` into each tune's `source` and add the place in the
+   book; written out whole, a tune looks like this:
 
 ```js
 {
@@ -303,11 +323,13 @@ brackets it keeps the first note.
 1. In `settle-hear/src/instruments.js`, add a function to `NOTES`, for example `whistle(ctx, out, f, t, dur, vel)`.
    Build it like `flute`: oscillators into an envelope gain into `out`, started at `t` and stopped a little after
    `t + dur`. Disconnect the nodes in the first oscillator's `onended`.
-2. Add its name to `INSTRUMENT_KEYS` and a one-line description to `INSTRUMENTS` in `themes.js`.
+2. Add its name to `INSTRUMENT_KEYS` in `instruments.js` and a one-line description to `INSTRUMENTS` in `themes.js`.
 3. Give it a level in the `instruments` of the themes that should use it.
 4. Decide when it plays, in `scheduleBar()` in `symphony.js`: with the tune, with the bed, or in static mode. Add a
-   track for it to `TRACKS` so a listener can switch it off.
-5. Keep every value finite and pass long-lived values through `ramp()`; the tests fail on any NaN that reaches an
+   track for it to `STEER_TRACKS` in `steer.js` (the symphony's `TRACKS` is a copy) so a listener can switch it off.
+5. If it plays a melody, it takes an effect chain like the others: see `voice-fx.js` and the README's "THE VOICE
+   CHAINS". Only the clear flute plays dry.
+6. Keep every value finite and pass long-lived values through `ramp()`; the tests fail on any NaN that reaches an
    audio parameter.
 
 ## 9 · The visualiser
@@ -353,7 +375,9 @@ A click on the mini opens **the larger view** above it (below it on a phone). Fr
   above the hero's caption and clear of the 75 px footer strip. The gamma controls sit bottom right.
 - Phone (700 px and narrower): it hangs at `top: 172px`, under the readout, and opens downward, because the gamma
   console takes the bottom of the hero there.
-- A page can move it with the `style` prop.
+- A page can move it with the `style` prop, or ask for the one-line mini with the `line` prop and lay it along an
+  edge. The SETTLE site does that: its DJ is one short line in the hero's bottom right corner, and the larger view
+  opens above it (`SETTLE/settle-site/src/hero.css`, `.hero-dj`).
 
 ### 9.3 · Motion
 
@@ -389,12 +413,12 @@ designer meets most:
 - **Density**: `res`, about how many lights fit across (the hero uses 384).
 - **Rhythm**: the temperature schedule (hot 3.0, cooling to 0.45 over 170 frames, a hold, a reheat, the next item).
 - **The pointer**: it lights what it passes and sends rings on a click.
-- **A film**: an item `{ film: 'hero-films/name.json', note, T }`, made by `sites/settle-site/tools/make_hero_film.mjs`
+- **A film**: an item `{ film: 'hero-films/name.json', note, T }`, made by `SETTLE/settle-site/tools/make_hero_film.mjs`
   from a video or a folder of frames. The symphony strikes a soft bell on each new frame, and the DJ reads a film as
   "keep moving": less static, more drone.
 - **A burst**: a short disturbance of the live field (a ring or wipe of flipped lights, a shake, a flash along a
   wire) that the cold field then repairs by itself. settle-see's README describes the deck of bursts in its
-  "Bursts" section where your copy has it. A burst raises the flips and the heat for a moment, so the DJ leans
+  "Bursts" section. A burst raises the flips and the heat for a moment, so the DJ leans
   toward a beat change and away from static.
 
 The sound never reads the pixels. It reads only the numbers above, so any new picture works with the symphony
@@ -410,11 +434,15 @@ import { HeroSymphony } from 'settle-hear/react';
 ```
 
 `stats` is the picture's `onStats` object; `playing` is the hero's own sound button (leave it out and the symphony
-plays by default). Optional: `level`, `seed` (a fixed set), `theme` (a fixed first theme), `style`.
+plays by default). Optional: `level`, `seed` (a fixed set), `theme` (a fixed first theme), `style`, `className`,
+`line` (the one-line mini), `house` (the house set), `pure` (the flute alone, as written), `opener` (the opening blend,
+on by default), `bases` (a base library for the house set), `tracks` (tracks on or off at the start), `modeName` (the
+name the panel shows), `closeWhen` (closes the larger view while true) and `onAir`.
 
 ## 13 · Tests
 
-`node --test tests/*.test.mjs` in `settle-hear/` checks: A = 432 exactly (note 69 is 432 Hz, A3 is 216 Hz); the
+`npm test` (the same as `node --test tests/*.test.mjs`) in `settle-hear/` runs every test of the package. The
+symphony's own tests check: A = 432 exactly (note 69 is 432 Hz, A3 is 216 Hz); the
 binaural pair is 40 Hz apart at home and dry; the ABC reader; the tune rule and every tune; the five themes; the
 theme pick (random, seeded, never the same theme twice in a row); the beat pick coming home; the DJ's decisions
 (the same seed and the same picture give the same set); the harmonic splits (every count from 2 to 7, by the

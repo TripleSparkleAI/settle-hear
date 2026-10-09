@@ -10,7 +10,10 @@
 //                              VOICE_SLOTS keeps its eight names in their old order (the tag's 3-bit index)
 // OPENER_VOICE_SLOTS / JAM_SLOTS / ALL_SLOTS / slotIndex(slot) - the parts outside the tag (lane MELODYFX2): the
 //                              opener's bells and the jam's five tonal hits; ALL_SLOTS gives every part its index
-// SLOT_INSTRUMENTS           - which instruments each part may play (the DJ deals one per set)
+// SLOT_INSTRUMENTS           - which instruments each part may play (the DJ deals one per set); the answer's bag holds
+//                              lane ECHOGUITAR's echo guitar, which answers with its own phrase and echoes, and lane
+//                              DJGUITARS' fuzz lead, which answers with its own bent phrase; the arps' bag holds lane
+//                              DJGUITARS' phase guitar, which plays the chord as its own arpeggio, strum or swell
 // SYMPHONY_INSTRUMENTS       - the symphony's override: its tune deals the clear flute or the distorted flute
 // INST_ALPHABET              - every instrument a tag can name, APPEND-ONLY (a tag stores an index)
 // CLEAN_INSTRUMENTS          - the instruments that never take a chain: the clear flute alone
@@ -39,10 +42,12 @@
 // defaultVoice(slot)         - a part's fallback voice when no palette names it (still three effects, or the clear flute)
 // chainLine(voice)           - one voice in plain words ("lo-fi keys: warm drive, tape wow, warm room")
 // createVoiceBuses(ctx, out, slots, { trim }) - the parts' buses, each built on its first note: { input(slot, t0),
-//                              palette(P, t0, fade, info), voiceOf(slot), states(), dispose() }
+//                              palette(P, t0, fade, info), voiceOf(slot), mute(slot, on, t0), muted(slot), states(),
+//                              dispose() }; a muted slot's bus is born muted when it is built later
 // createVoiceBus(ctx, out, { slot, trim }) - one part's live chain: { input, set(voice, t0, fade), bar(t0, info),
-//                              voice, keys, trim, dispose() }; a new chain crossfades in over `fade` seconds; trim (a
-//                              number or a function of the voice) is the gain after the chain
+//                              mute(on, t0, fade), muted, voice, keys, trim, dispose() }; a new chain crossfades in over
+//                              `fade` seconds; trim (a number or a function of the voice) is the gain after the chain;
+//                              mute closes one gain after the chain (432 Hz McKUSKER MODE's mute, melody.js), tails too
 //
 // ** Technical Review **
 // - THE RULE (navigator, 2026-10-02): "ALL go through many effects ... at least 3 per instrument as a base, and more
@@ -93,8 +98,8 @@ export const ALL_SLOTS = Object.freeze([...VOICE_SLOTS, ...OPENER_VOICE_SLOTS, .
 export const slotIndex = (slot) => ALL_SLOTS.indexOf(slot);
 export const SLOT_INSTRUMENTS = Object.freeze({
   lead: ['flute', 'flute-drive', 'keys'],
-  arps: ['pluck', 'keys', 'harp'],
-  answer: ['keys', 'bells', 'flute-drive', 'crystal'],
+  arps: ['pluck', 'keys', 'harp', 'phase-guitar'],
+  answer: ['keys', 'bells', 'flute-drive', 'crystal', 'echo-guitar', 'fuzz-lead'],
   chop: ['chop'],
   fiddle: ['fiddle'],
   harp: ['harp'],
@@ -109,13 +114,13 @@ export const SLOT_INSTRUMENTS = Object.freeze({
 });
 // the symphony deals its tune between the two flutes only (the keys stay a house instrument)
 export const SYMPHONY_INSTRUMENTS = Object.freeze({ lead: ['flute', 'flute-drive'] });
-export const INST_ALPHABET = Object.freeze(['flute', 'flute-drive', 'keys', 'pluck', 'harp', 'bells', 'crystal', 'fiddle', 'chop']);
+export const INST_ALPHABET = Object.freeze(['flute', 'flute-drive', 'keys', 'pluck', 'harp', 'bells', 'crystal', 'fiddle', 'chop', 'echo-guitar', 'fuzz-lead', 'phase-guitar']);
 export const CLEAN_INSTRUMENTS = new Set(['flute']);
 export const INST_LABEL = {
-  flute: 'the clear flute', 'flute-drive': 'the distorted flute', keys: 'lo-fi keys', pluck: 'soft pluck', harp: 'harp', bells: 'bells', crystal: 'crystal', fiddle: 'fiddle', chop: 'the chop',
+  flute: 'the clear flute', 'flute-drive': 'the distorted flute', keys: 'lo-fi keys', pluck: 'soft pluck', harp: 'harp', bells: 'bells', crystal: 'crystal', fiddle: 'fiddle', chop: 'the chop', 'echo-guitar': 'the echo guitar', 'fuzz-lead': 'the fuzz lead', 'phase-guitar': 'the phase guitar',
   'opener-bells': 'the opener\'s bells', 'jam-pluck': 'the jam pluck', 'jam-bell': 'the jam bell', 'jam-chord': 'the jam chord', 'jam-vox': 'the jam vox', 'jam-settle': 'the jam settle burst',
 };
-export const REGISTER = { flute: 79, 'flute-drive': 74, keys: 67, pluck: 64, harp: 62, bells: 74, crystal: 84, fiddle: 67, chop: 79 };
+export const REGISTER = { flute: 79, 'flute-drive': 74, keys: 67, pluck: 64, harp: 62, bells: 74, crystal: 84, fiddle: 67, chop: 79, 'echo-guitar': 64, 'fuzz-lead': 74, 'phase-guitar': 62 };
 export const SATURATOR = 'warm-drive';
 
 const pick = (...v) => ({ pick: v });
@@ -174,6 +179,10 @@ export const DRIVE_TASTE = {
   default: { drive: [1.4, 2.6], character: pick(0, 1, 2), tone: [3500, 7000], makeup: [1, 1.2] },
   'flute-drive': { drive: [3.5, 5], character: pick(0, 1, 2), tone: [3000, 6000], makeup: [1.8, 2.4] },
   keys: { drive: [1.6, 2.8], character: pick(1, 2), tone: [3000, 5500], makeup: [1, 1.2] },
+  // lane ECHOGUITAR: an electric guitar likes a little more push than the keys. Its top was 3, over the 2.8 every
+  // voice but the distorted flute keeps (tests/melodyfx.test.mjs); lane DJGUITARS' larger bags dealt it at 2.92 and
+  // the law's test caught it, so its range now ends at 2.8, the keys' own top
+  'echo-guitar': { drive: [1.8, 2.8], character: pick(0, 1), tone: [2800, 5000], makeup: [1, 1.2] },
   // lane MELODYFX2: the opener's soft tape drive (the tape curve only, a little push, no makeup)
   gentle: { drive: [1.2, 1.5], character: pick(2), tone: [3500, 5500], makeup: [1, 1] },
 };
@@ -204,7 +213,7 @@ const profileOf = (name) => PROFILES[name] ?? PROFILES.full;
 const poolEntry = (profile, key) => profileOf(profile).taste?.[key] ?? VOICE_CHAIN_POOL[key];
 // each instrument's own peak at velocity 1 (instruments.js), so a part can ask for a LEVEL and get it on any
 // instrument: velocity = level / peak
-export const INST_PEAK = { flute: 0.22, 'flute-drive': 0.22, keys: 0.2, pluck: 0.12, harp: 0.16, bells: 0.08, crystal: 0.05, fiddle: 0.11, chop: 1 };
+export const INST_PEAK = { flute: 0.22, 'flute-drive': 0.22, keys: 0.2, pluck: 0.12, harp: 0.16, bells: 0.08, crystal: 0.05, fiddle: 0.11, chop: 1, 'echo-guitar': 0.18, 'fuzz-lead': 0.22, 'phase-guitar': 0.23 };
 export const velocityFor = (inst, peak) => Math.min(1, Math.max(0, peak / (INST_PEAK[inst] ?? 0.2)));
 export const FAMILY_ORDER = ['grit', 'filter', 'mod', 'rhythm', 'time', 'space'];
 export const FAMILY_CAP = { filter: 1, grit: 1, mod: 2, rhythm: 1, time: 1, space: 1 };
@@ -245,6 +254,8 @@ const INST_TASTE = {
   bells: { plate: 0.6, shimmer: 0.5, 'ping-pong': 0.4, hall: 0.4, 'ring-shimmer': 0.3, 'ring-mod': -0.4, bitcrush: -0.3 },
   crystal: { shimmer: 0.6, plate: 0.5, ensemble: 0.4, 'ring-shimmer': 0.4, 'ring-mod': -0.5 },
   fiddle: { ensemble: 0.7, 'warm-room': 0.6, 'drift-filter': 0.4, hall: 0.5, flanger: -0.3 },
+  // lane ECHOGUITAR: the guitar carries its own echo and room, so a second delay or a big reverb is pushed away
+  'echo-guitar': { phaser: 0.6, 'tape-wow': 0.6, 'drift-filter': 0.5, chorus: 0.4, tremolo: 0.4, wah: 0.4, 'tape-delay': -1, 'dub-echo': -1, 'ping-pong': -1, hall: -0.8, plate: -0.6 },
   chop: { bitcrush: 0.6, 'rate-reduce': 0.6, 'tape-delay': 0.5, flanger: 0.4, 'tape-wow': 0.3, 'trance-gate': 0.5, 'gated-reverb': 0.4 },
   'opener-bells': { 'warm-room': 0.6, ensemble: 0.5, hall: 0.5, 'drift-filter': 0.4, tremolo: 0.3 },
   'jam-pluck': { 'ping-pong': 0.7, 'drift-filter': 0.5, chorus: 0.4, comb: 0.3, 'tape-delay': 0.4 },
@@ -253,6 +264,10 @@ const INST_TASTE = {
   'jam-vox': { formant: 0.6, 'ring-shimmer': 0.3, 'tape-delay': 0.4, phaser: 0.3 },
   'jam-settle': { shimmer: 0.5, plate: 0.4, 'drift-filter': 0.3, ensemble: 0.3 },
 };
+// lane DJGUITARS: the two psych guitars carry their own echo and room, so they lean as the echo guitar does (a second
+// delay or a big reverb pushed away). They share its row and take the default warm drive: the site's first load had
+// about 1 kB of room under its guard (tests/bundleslim.test.mjs), and a row of their own did not fit
+INST_TASTE['fuzz-lead'] = INST_TASTE['phase-guitar'] = INST_TASTE['echo-guitar'];
 
 export function voiceFit(key, { theme = 'highlands', inst = 'keys' } = {}) {
   return (THEME_TASTE[theme]?.[key] ?? 0) + (INST_TASTE[inst]?.[key] ?? 0);
@@ -428,6 +443,11 @@ const signature = (v) => JSON.stringify([v?.inst, (v?.chain ?? []).map((c) => [c
 export function createVoiceBus(ctx, out, { slot = 'lead', trim = VOICE_TRIM } = {}) {
   const trimOf = (voice) => Math.min(2.5, Math.max(0, Number(typeof trim === 'function' ? trim(voice) : trim) || 0));
   const input = ctx.createGain();
+  // THE MUTE GATE (lane McKUSKER, melody.js): one gain after every chain, so a mute closes the voice and its tails at
+  // once and a new chain crossfading in is born behind the same gate
+  const gate = ctx.createGain();
+  gate.connect(out);
+  let isMuted = false;
   let cur = null; // { rack, fade, sig, voice }
   let dead = false;
   function build(voice, t0, fade) {
@@ -440,7 +460,7 @@ export function createVoiceBus(ctx, out, { slot = 'lead', trim = VOICE_TRIM } = 
     input.connect(rack.input);
     rack.output.connect(trimNode);
     trimNode.connect(f);
-    f.connect(out);
+    f.connect(gate);
     at(f.gain, fade > 0 ? 0 : 1, t0);
     if (fade > 0) lin(f.gain, 1, t0 + fade);
     return { rack, trim: trimNode, fade: f, sig: signature(voice), voice };
@@ -462,6 +482,15 @@ export function createVoiceBus(ctx, out, { slot = 'lead', trim = VOICE_TRIM } = 
     get keys() { return cur ? cur.voice.chain.map((c) => c.key) : []; },
     get rack() { return cur?.rack ?? null; },
     get trim() { return cur?.trim.gain.value ?? null; },
+    get muted() { return isMuted; },
+    mute(on, t0 = ctx.currentTime, fade = 0.12) {
+      if (dead) return;
+      isMuted = !!on;
+      const to = isMuted ? 0 : 1;
+      try { gate.gain.cancelScheduledValues(t0); } catch { /* an old param */ }
+      at(gate.gain, gate.gain.value, t0);
+      if (fade > 0) lin(gate.gain, to, t0 + fade); else at(gate.gain, to, t0);
+    },
     set(voice, t0 = ctx.currentTime, fade = 0.5) {
       if (dead || !voice) return;
       const sig = signature(voice);
@@ -475,7 +504,7 @@ export function createVoiceBus(ctx, out, { slot = 'lead', trim = VOICE_TRIM } = 
       if (dead) return;
       dead = true;
       if (cur) { cur.rack.dispose(); for (const n of [cur.trim, cur.fade]) try { n.disconnect(); } catch { /* gone */ } }
-      try { input.disconnect(); } catch { /* gone */ }
+      for (const n of [input, gate]) try { n.disconnect(); } catch { /* gone */ }
     },
   };
 }
@@ -484,6 +513,7 @@ export function createVoiceBus(ctx, out, { slot = 'lead', trim = VOICE_TRIM } = 
 // .input(slot, t0) is where a note goes; .palette(P, t0, fade, info) moves every built bus to the palette's voice
 export function createVoiceBuses(ctx, out, slots = HOUSE_SLOTS, { trim = VOICE_TRIM } = {}) {
   const buses = {};
+  const muted = new Set();
   let P = null;
   let lastInfo = null;
   const voiceOf = (slot) => P?.voices?.find((v) => v.slot === slot) ?? defaultVoice(slot);
@@ -495,10 +525,17 @@ export function createVoiceBuses(ctx, out, slots = HOUSE_SLOTS, { trim = VOICE_T
       if (!buses[slot]) {
         buses[slot] = createVoiceBus(ctx, out, { slot, trim });
         buses[slot].set(voiceOf(slot), t0, 0);
+        if (muted.has(slot)) buses[slot].mute(true, t0, 0);
         if (lastInfo) buses[slot].bar(t0, lastInfo);
       }
       return buses[slot].input;
     },
+    // a part's mute (lane McKUSKER): the built bus closes now, an unbuilt one is born closed
+    mute(slot, on, t0 = ctx.currentTime, fade = 0.12) {
+      if (on) muted.add(slot); else muted.delete(slot);
+      buses[slot]?.mute(!!on, t0, fade);
+    },
+    muted: (slot) => muted.has(slot),
     palette(next, t0 = ctx.currentTime, fade = 0.5, info = null) {
       if (next) P = next;
       lastInfo = info ?? lastInfo;

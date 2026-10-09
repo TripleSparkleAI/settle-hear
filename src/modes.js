@@ -96,6 +96,29 @@ export function isMode(key) {
   return BY_KEY.has(String(key));
 }
 
+// THE MODE AS A TRACK (lane DJSILENCE, navigator 2026-10-07: "assume the DJ PLAYS EVERYTHING ... the controls are the
+// same for each track"): a mode's own tag in the shape of THE DJ's tags (four capitals, a kind, a version, a payload:
+// the carrier and the beat in hundredths), so the set history, the votes and the playlist treat a mode as a set. The
+// four capitals are the first four letters of the mode's label (GAMM, BETA, ALPH, SCHU, THET, DELT, LOVE)
+const codeOf = (m) => m.label.replace(/[^A-Z]/gi, '').toUpperCase().slice(0, 4);
+const BY_CODE = new Map(BINAURAL_MODES.map((m) => [codeOf(m), m]));
+export function modeTrackTag(key) {
+  const m = modeOf(key);
+  return m ? `${codeOf(m)}.mode.v1.${m.carrier}B${Math.round(m.beat * 100)}` : null;
+}
+export function modeOfTrackTag(tag) {
+  const x = /^([A-Z]{4})\.mode\.v1\.(\d+)B(\d+)$/.exec(String(tag ?? '').trim());
+  const m = x ? BY_CODE.get(x[1]) : null;
+  return m && Number(x[2]) === m.carrier && Number(x[3]) === Math.round(m.beat * 100) ? m.key : null;
+}
+// the track's name on THE CONTROLS LINE: the mode's own name and its beat ("SCHUMANN · 7.83 Hz")
+export function modeTrackName(key) {
+  const m = modeOf(key);
+  if (!m) return [];
+  // a label that already carries its beat (SCHUMANN 7.83) takes only the unit
+  return m.label.includes(String(m.beat)) ? [`${m.label} Hz`] : [m.label, `${m.beat} Hz`];
+}
+
 export const MODE_CYCLE = {
   stretch: 180, // s: each mode plays about three minutes before the shuffle moves on
   fade: TONE.modeFade, // s: the crossfade between modes

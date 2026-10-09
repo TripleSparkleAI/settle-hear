@@ -57,6 +57,7 @@
 
 import { armUnlock, onEngine, ramp, wantSound } from './engine.js';
 import { registerPulseTarget } from './pulse.js';
+import { duckGain } from './duck.js';
 import { masterStartTime } from './masterbeat.js';
 import { modeOf, modePair } from './modes.js';
 import { TONE, gentleDetune } from './tone.js';
@@ -366,7 +367,10 @@ function dryChannel(E, level) {
   swell.gain.value = 1;
   input.connect(lp);
   lp.connect(fader);
-  fader.connect(swell);
+  // THE MIX'S DUCK (lane DJSILENCE, duck.js): a drop dips this channel's level under the drop, never a tone's pitch
+  const dk = duckGain(ctx, 'binaural');
+  fader.connect(dk.node);
+  dk.node.connect(swell);
   swell.connect(E.master);
   const unpulse = registerPulseTarget({ anchor: null, ctx, gain: swell.gain });
   let lvl = level;
@@ -382,7 +386,8 @@ function dryChannel(E, level) {
       ramp(fader.gain, 0, ctx.currentTime, 0.05);
       wantSound(token, false);
       unpulse();
-      const id = setTimeout(() => { for (const n of [input, lp, fader, swell]) try { n.disconnect(); } catch { /* already gone */ } }, 300);
+      dk.off();
+      const id = setTimeout(() => { for (const n of [input, lp, fader, dk.node, swell]) try { n.disconnect(); } catch { /* already gone */ } }, 300);
       id?.unref?.();
     },
   };

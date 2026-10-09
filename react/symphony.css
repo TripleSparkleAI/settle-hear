@@ -221,6 +221,9 @@
 .dj-line__tune { flex: 1 1 auto !important; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* the hero's bag and item (lane HEROSHUFFLE): the site passes it as onAir; it keeps its words and gives way last */
 .dj-line__onair { color: var(--dj-theme, var(--dj-red)); white-space: nowrap; }
+/* THE DJ'S DESK (lane DJFX): the mood on the line, and an overdo marked in the line's red */
+.dj-line__fx { white-space: nowrap; letter-spacing: 0.06em; }
+.dj-line__fx--over { color: var(--dj-red); }
 .dj-mini--line .dj-mini__open { margin-left: auto; }
 
 /* THE HOUSE SET (lane HOUSEDJ): the passes playing now, in the DJ view */

@@ -2,7 +2,7 @@
 // bases_build - build THE LIBRARY: every source MIDI in the sources manifest through the importer, every authored
 // recipe through the author, numbered base-NNNN in one pass, written to settle-hear/bases/ with index.json, the
 // ledger (ledger.json + LEDGER.md) and a BUILD.md report. The raw MIDI files are read from the manifest's paths
-// (experiments/thermosim/runs/housebases/raw/, gitignored) and are never copied into bases/.
+// (SETTLE/runs/housebases/raw/, gitignored) and are never copied into bases/.
 //
 // <claudes_code_comments>
 // ** Function List **

@@ -1,0 +1,170 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SFX MEASURE - offline loudness, spectrum and variety of a sound deck</title>
+<!--
+  SFX MEASURE (lane PSYRADIAL, 2026-10-05): render every sound of a deck module, and the 24 click noises as the
+  reference, alone into a mono 48 kHz OfflineAudioContext destination at strength 1, and report per sound:
+  peak, the loudest 50 ms RMS, length to -60 dBFS, spectral centroid, the share of energy above 10 kHz, pitch movement
+  (the spectral peak in the first and last 20 ms frames above -40 dB, in semitones) and a 12-band energy profile for
+  pairwise distance. Driven by tools/sfx_measure.py (headless Chromium). Query: ?mods=<url>:<export>,... ; &bench=1
+  adds the CPU benchmark (render time of N overlapping procedural voices against N AudioBuffer playbacks).
+-->
+<script type="module">
+import { CLICK_NOISES } from '../src/clicks.js';
+
+const SR = 48000;
+const SECS = 2;
+const db = (x) => (x > 0 ? 20 * Math.log10(x) : -999);
+
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const a = (-2 * Math.PI) / len; const wr = Math.cos(a); const wi = Math.sin(a);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1; let ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k]; const ui = im[i + k];
+        const vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+        const vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi; re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
+        const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+}
+
+function spectrum(d, from, len, size) {
+  const re = new Float64Array(size); const im = new Float64Array(size);
+  for (let i = 0; i < len && from + i < d.length; i++) re[i] = d[from + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / Math.max(1, len - 1)));
+  fft(re, im);
+  const p = new Float64Array(size / 2);
+  for (let k = 0; k < size / 2; k++) p[k] = re[k] * re[k] + im[k] * im[k];
+  return p;
+}
+
+function peakHz(d, from, len) {
+  const p = spectrum(d, from, len, 4096);
+  let best = 0; let bk = 0;
+  for (let k = 2; k < p.length; k++) if (p[k] > best) { best = p[k]; bk = k; }
+  return (bk * SR) / 4096;
+}
+
+function measure(buf) {
+  const L = buf.getChannelData(0); const R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+  const d = new Float32Array(L.length); for (let i = 0; i < L.length; i++) d[i] = 0.5 * (L[i] + R[i]);
+  const loud = (i) => Math.max(Math.abs(L[i]), Math.abs(R[i]));
+  let peak = 0; let last = 0; let first = -1;
+  for (let i = 0; i < d.length; i++) { const a = loud(i); if (a > peak) peak = a; if (a > 0.001) { last = i; if (first < 0) first = i; } }
+  const w = Math.round(0.05 * SR); let s = 0; let rms50 = 0;
+  for (const C of [L, R]) { s = 0; for (let i = 0; i < C.length; i++) { s += C[i] * C[i]; if (i >= w) s -= C[i - w] * C[i - w]; if (i >= w - 1) rms50 = Math.max(rms50, Math.sqrt(Math.max(0, s) / w)); } }
+  const len = Math.max(1, last - Math.max(0, first) + 1);
+  const size = 1 << Math.ceil(Math.log2(Math.max(4096, len)));
+  const p = spectrum(d, Math.max(0, first), Math.min(len, size), size);
+  let tot = 0; let cen = 0; let hf = 0;
+  const edges = Array.from({ length: 13 }, (_, i) => 40 * Math.pow(400, i / 12)); // 40 Hz .. 16 kHz, 12 log bands
+  const bands = new Array(12).fill(0);
+  for (let k = 1; k < p.length; k++) {
+    const f = (k * SR) / size; tot += p[k]; cen += f * p[k]; if (f > 10000) hf += p[k];
+    for (let b = 0; b < 12; b++) if (f >= edges[b] && f < edges[b + 1]) { bands[b] += p[k]; break; }
+  }
+  const prof = bands.map((x) => +(10 * Math.log10(x / (tot || 1) + 1e-9)).toFixed(2));
+  // pitch movement: the spectral peak of the first and the last 20 ms frames that sit above -40 dBFS
+  const fr = Math.round(0.02 * SR); const frames = [];
+  for (let i = Math.max(0, first); i + fr <= d.length && i <= last; i += fr) {
+    let e = 0; for (let j = 0; j < fr; j++) e += d[i + j] * d[i + j];
+    if (Math.sqrt(e / fr) > 0.01) frames.push(i);
+  }
+  const f0 = frames.length ? peakHz(d, frames[0], fr * 2) : 0;
+  const f1 = frames.length ? peakHz(d, frames.at(-1), fr * 2) : 0;
+  return {
+    peak: +peak.toFixed(5), peakDb: +db(peak).toFixed(2), rms50Db: +db(rms50).toFixed(2),
+    dur: +((last + 1) / SR).toFixed(3), centroid: Math.round(cen / (tot || 1)), hfShare: +(hf / (tot || 1)).toFixed(5),
+    pitchFrom: Math.round(f0), pitchTo: Math.round(f1), pitchSemis: f0 > 0 && f1 > 0 ? +(12 * Math.log2(f1 / f0)).toFixed(1) : 0,
+    profile: prof,
+  };
+}
+
+async function renderOne(fn, secs = SECS) {
+  const ctx = new OfflineAudioContext(2, Math.round(SR * secs), SR);
+  const t0 = performance.now();
+  fn(ctx, ctx.destination, 0.01);
+  const buf = await ctx.startRendering();
+  const m = measure(buf);
+  m.renderMs = +(performance.now() - t0).toFixed(2);
+  return { m, buf };
+}
+
+const rows = [];
+for (const [i, n] of CLICK_NOISES.entries()) {
+  const { m } = await renderOne((c, o, t) => n.play(c, o, t, { strength: 1 }));
+  rows.push({ set: 'clicks', id: `click-${i}`, name: n.name, kind: n.family, ...m });
+}
+const q = new URLSearchParams(location.search);
+const deckBufs = [];
+for (const spec of (q.get('mods') || '').split(',').filter(Boolean)) {
+  const [url, exp] = spec.split(':');
+  const mod = await import(url);
+  for (const s of mod[exp]) {
+    const { m, buf } = await renderOne((c, o, t) => s.render(c, t, o, { strength: 1, seed: 1 }));
+    const { m: m2 } = await renderOne((c, o, t) => s.render(c, t, o, { strength: 1, seed: 1 }));
+    m.deterministic = m2.peak === m.peak && m2.centroid === m.centroid;
+    // the worst level over seeds 1 .. N (the wiring passes a fresh seed per play)
+    let wp = m.peakDb; let wr = m.rms50Db;
+    for (let sd = 2; sd <= +(q.get('seeds') || 1); sd++) {
+      const { m: ms } = await renderOne((c, o, t) => s.render(c, t, o, { strength: 1, seed: sd }));
+      wp = Math.max(wp, ms.peakDb); wr = Math.max(wr, ms.rms50Db);
+    }
+    m.worstPeakDb = wp; m.worstRms50Db = wr;
+    rows.push({ set: exp, id: s.id, name: s.name, kind: s.kind, ...m });
+    deckBufs.push({ id: s.id, buf, render: s.render });
+  }
+}
+
+let bench = null;
+if (q.get('bench')) {
+  // CPU: N overlapping voices of one procedural sound against N plays of the same sound as a pre-rendered AudioBuffer,
+  // rendered offline over 4 s (the render time is the CPU cost; real time is 4000 ms)
+  const N = +(q.get('voices') || 32);
+  const pick = deckBufs.length ? deckBufs : [];
+  bench = [];
+  for (const s of pick) {
+    const proc = new OfflineAudioContext(2, SR * 4, SR);
+    for (let v = 0; v < N; v++) { const g = proc.createGain(); g.gain.value = 1 / N; g.connect(proc.destination); s.render(proc, 0.01 + (v * 3.5) / N, g, { strength: 1, seed: v + 1 }); }
+    let t0 = performance.now(); await proc.startRendering(); const procMs = performance.now() - t0;
+    const smp = new OfflineAudioContext(2, SR * 4, SR);
+    for (let v = 0; v < N; v++) { const b = smp.createBufferSource(); b.buffer = s.buf; const g = smp.createGain(); g.gain.value = 1 / N; b.connect(g); g.connect(smp.destination); b.start(0.01 + (v * 3.5) / N); }
+    t0 = performance.now(); await smp.startRendering(); const smpMs = performance.now() - t0;
+    bench.push({ id: s.id, voices: N, procMs: +procMs.toFixed(1), sampleMs: +smpMs.toFixed(1), realMs: 4000 });
+  }
+}
+// main-thread cost of BUILDING a sound's graph (the part a click pays at once), and of decoding a shipped file
+let build = null;
+if (q.get('bench')) {
+  build = [];
+  for (const s of deckBufs) {
+    const ctx = new OfflineAudioContext(2, SR, SR);
+    const t0 = performance.now();
+    for (let i = 0; i < 100; i++) s.render(ctx, 0.01, ctx.destination, { strength: 1, seed: i + 1 });
+    build.push({ id: s.id, buildUs: +(((performance.now() - t0) / 100) * 1000).toFixed(1) });
+  }
+}
+let decode = null;
+if (q.get('decode')) {
+  decode = [];
+  for (const url of q.get('decode').split(',')) {
+    const bytes = await (await fetch(url)).arrayBuffer();
+    const ctx = new OfflineAudioContext(2, SR, SR);
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) await ctx.decodeAudioData(bytes.slice(0));
+    decode.push({ url, bytes: bytes.byteLength, decodeUs: +(((performance.now() - t0) / 20) * 1000).toFixed(1) });
+  }
+}
+window.__pcm = (id) => { const s = deckBufs.find((x) => x.id === id); if (!s) return null; const L = s.buf.getChannelData(0); const R = s.buf.getChannelData(1); return [Array.from(L), Array.from(R)]; };
+window.__result = { rows, bench, build, decode };
+</script>

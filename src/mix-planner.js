@@ -1,7 +1,7 @@
 // settle-hear · mix-planner - THE PLANNER: the house DJ's arc. Every four bars it plans the next sixteen, scores
 // every plan by how well it fits the set's energy arc, the theme, the hero's mood, the visitor's steering and the
 // votes, adds a habit prior that keeps the music coherent, and SETTLES one plan on the master beat. Modelled on the
-// DOOM page's surprise agent (sites/settle-site/src/engine/surprise.js): plans over a short horizon, a score per
+// DOOM page's surprise agent (SETTLE/settle-site/src/engine/surprise.js): plans over a short horizon, a score per
 // plan, a habit prior over plans, a settled choice.
 //
 // <claudes_code_comments>

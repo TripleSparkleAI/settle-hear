@@ -84,3 +84,31 @@ test('the click noises: 24 clicks play all 24 noises (the bag under THE CLICK LO
   noRepeat(seq, 'clicks');
   assert.equal(clickBag(0, 1).next(), -1, 'an empty bag answers -1');
 });
+
+// lane MATHSHAPES' cycle audit: the house DJ's warm-downs drew the hum rate and variant fresh each time (humChoice);
+// a set plays many hums, so they are dealt like decks now
+import { createHumDealer, humChoice } from '../src/mix-dj.js';
+test('THE HUMS: the warm-down rates and variants are dealt like decks, the motif twice a round', () => {
+  for (const seed of [1, 4, 19, 2026]) {
+    const d = createHumDealer(rng(seed));
+    const deep = Array.from({ length: 12 }, () => d.next({ after: 'peak' }));
+    for (let k = 0; k < 6; k++) once(deep.slice(k * 2, k * 2 + 2).map((h) => h.rate), ['delta', 'theta'], `seed ${seed} deep round ${k}`);
+    assert.ok(deep.every((h) => h.deep));
+    const calm = Array.from({ length: 8 }, () => d.next({ after: 'outro', energy: 0.3 }));
+    for (let k = 0; k < 4; k++) once(calm.slice(k * 2, k * 2 + 2).map((h) => h.rate), ['alpha', 'schumann'], `seed ${seed} calm round ${k}`);
+    const plain = Array.from({ length: 12 }, () => d.next({ after: 'outro', energy: 0.3 }).variant);
+    // the variant decks are shared across rates, so count from a fresh dealer for the exact rounds
+    const v = createHumDealer(rng(seed + 1));
+    const pv = Array.from({ length: 12 }, () => v.next({ after: 'outro', energy: 0.3 }).variant);
+    for (let k = 0; k < 3; k++) once(pv.slice(k * 4, k * 4 + 4), ['pulse', 'breath', 'rain', 'pair'], `seed ${seed} variants round ${k}`);
+    const mv = createHumDealer(rng(seed + 2));
+    const motif = Array.from({ length: 12 }, () => mv.next({ motif: [60, 62] }).variant);
+    for (let k = 0; k < 3; k++) once(motif.slice(k * 4, k * 4 + 4), ['motif', 'motif', 'pulse', 'pair'], `seed ${seed} motif round ${k}`);
+    noRepeat(pv, `seed ${seed} variants`);
+    assert.equal(plain.length, 12);
+  }
+  // negative control: the old pure helper is free to repeat inside a round (it draws fresh each time)
+  const r = rng(3);
+  const fresh = Array.from({ length: 40 }, () => humChoice(r, { after: 'peak' }).rate);
+  assert.ok(fresh.some((x, i) => i % 2 === 1 && x === fresh[i - 1]), 'humChoice repeats inside a round of two');
+});

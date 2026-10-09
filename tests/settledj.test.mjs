@@ -14,7 +14,7 @@ import {
   createInfluenceWindow, influenceWeights, createDJ, createMixSet, STEER_IDLE,
 } from '../src/index.js';
 
-const SRC = (t) => ({ ...t, source: { book: 'test fixture book', compiler: 'test', year: 1800, where: 'p. 1' } });
+const SRC = (t) => ({ ...t, source: { book: 'test fixture book', compiler: 'test', year: 1800, where: 'p. 1', scan: 'https://archive.org/details/test-fixture' } });
 const REELS = [SRC(FIX_REEL_A), SRC(FIX_REEL_B)];
 const POOL = playableTunes([...TUNES, ...REELS, SRC(FIX_AIR)]);
 const reel = (id) => POOL.find((t) => t.id === id);

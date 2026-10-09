@@ -1,0 +1,116 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>THE DJ's OVERDRIVE AND VOCODER - offline levels</title>
+<!--
+  THE DJ's OVERDRIVE AND VOCODER (lane DJOVERDRIVE): render in a real OfflineAudioContext (Chromium's own WaveShaper
+  oversampling, biquads and delays, which tests/offline.mjs only approximates) and report the levels.
+  (1) THE BUS: a hero-like mix through createFxBus, CLEAN against OVERDRIVE (cold, mid, hot settle, and with each
+      overdo), through the master chain copied from engine.js build() and the bus alone.
+  (2) THE VOICES: each melodic instrument, a loud and a soft phrase, dry against the hardest and the gentlest voice
+      overdrive THE DJ deals and a fully wet vocoder warbling and steady; the coloured RMS and peak as a share of dry.
+  Driven by tools/djoverdrive_levels.py (headless Chromium).
+-->
+<script type="module">
+import { createFxBus, settleFlavour, fxValues } from '../src/dj-fx.js';
+import { loadColour } from '../src/dj-colour.js';
+import { playNote } from '../src/instruments.js';
+import { midiHz } from '../src/tuning.js';
+
+const SR = 48000;
+const C = await loadColour(); // the audio half, loaded as the symphony loads it
+
+const db = (x) => (x > 0 ? 20 * Math.log10(x) : -Infinity);
+function levels(buf, from = 0) {
+  let peak = 0; let sum = 0; let n = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = Math.floor(from * SR); i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; sum += d[i] * d[i]; n++; }
+  }
+  const rms = Math.sqrt(sum / n);
+  return { peak: +peak.toFixed(5), rms: +rms.toFixed(6), peakDb: +db(peak).toFixed(2), rmsDb: +db(rms).toFixed(2) };
+}
+
+// (1) THE BUS, as djfx_levels.html renders it
+const SECS = 8;
+function source(ctx, out) {
+  const t0 = 0.05;
+  const pad = ctx.createGain(); pad.gain.value = 0.05; pad.connect(out);
+  for (const f of [196, 246.9, 293.7]) { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(pad); o.start(t0); }
+  const notes = [587.3, 659.3, 784, 659.3, 587.3, 523.3, 587.3, 784];
+  for (let i = 0; i < SECS * 2; i++) {
+    const t = t0 + i * 0.5;
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = notes[i % notes.length];
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + 0.5);
+    const k = ctx.createOscillator(); k.frequency.setValueAtTime(120, t); k.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    const kg = ctx.createGain(); kg.gain.setValueAtTime(0.4, t); kg.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    k.connect(kg); kg.connect(out); k.start(t); k.stop(t + 0.3);
+  }
+}
+function masterChain(ctx) {
+  const master = ctx.createGain(); master.gain.value = 0.8;
+  const limit = ctx.createDynamicsCompressor();
+  limit.threshold.value = -14; limit.knee.value = 4; limit.ratio.value = 20; limit.attack.value = 0.002; limit.release.value = 0.2;
+  const safety = ctx.createGain(); safety.gain.value = 0.9;
+  master.connect(limit); limit.connect(safety); safety.connect(ctx.destination);
+  return master;
+}
+async function renderBus(values, { master = true } = {}) {
+  const ctx = new OfflineAudioContext(2, SR * SECS, SR);
+  const out = master ? masterChain(ctx) : ctx.destination;
+  let into = out;
+  let tube = false;
+  if (values) {
+    const bus = createFxBus({ ctx, master: out });
+    bus.apply(values, 0, { tau: 0.05, beatDur: 0.5 });
+    tube = !!bus.nodes.tube;
+    into = bus.input;
+  }
+  const ch = ctx.createGain(); ch.gain.value = 0.55; ch.connect(into);
+  source(ctx, ch);
+  const buf = await ctx.startRendering();
+  return { ...levels(buf, 1), tube };
+}
+const hot = settleFlavour({ heat: 0.95, flips: 0.9, energy: 0.9, overlap: 0.05 });
+const mid = settleFlavour({ heat: 0.5, flips: 0.5, energy: 0.5, overlap: 0.5 });
+const cold = settleFlavour({ heat: 0.05, flips: 0.05, energy: 0.1, overlap: 0.95 });
+const busCases = [
+  ['no bus (the old path)', null],
+  ['CLEAN, mid', fxValues('clean', mid)],
+  ['OVERDRIVE, cold', fxValues('overdrive', cold)],
+  ['OVERDRIVE, mid', fxValues('overdrive', mid)],
+  ['OVERDRIVE, hot', fxValues('overdrive', hot)],
+  ['OVERDRIVE, steered to 1', fxValues('overdrive', mid, null, { overdrive: 1 })],
+  ['OVERDRIVE · too much distortion', fxValues('overdrive', hot, 'drive')],
+  ['OVERDRIVE · too much delay', fxValues('overdrive', mid, 'delay')],
+  ['OVERDRIVE · too much reverb', fxValues('overdrive', mid, 'reverb')],
+];
+const bus = [];
+for (const [name, v] of busCases) bus.push({ name, master: await renderBus(v), bus: await renderBus(v, { master: false }) });
+
+// (2) THE VOICES, as tests/djoverdrive.test.mjs renders them offline
+const notes = [74, 79, 76, 72];
+async function renderVoice(inst, vel, plan) {
+  const ctx = new OfflineAudioContext(2, Math.round(SR * 1.5), SR);
+  let into = ctx.destination;
+  if (plan) { const st = C.createColourStage(ctx, ctx.destination); st.set(plan, 0, 0.001); into = st.input; }
+  notes.forEach((m, i) => playNote(ctx, into, inst, midiHz(m - (inst === 'harp' ? 12 : 0)), 0.02 + i * 0.35, 0.33, vel));
+  return levels(await ctx.startRendering());
+}
+const plans = [
+  ['drive, hardest (0.9, gain 6)', { drive: { amount: 0.9, gain: 6 } }],
+  ['drive, gentlest (0.55, gain 3)', { drive: { amount: 0.55, gain: 3 } }],
+  ['vocoder, warbling, wet 1', { vocoder: { amount: 1, warble: true, rate: 0.6, depth: 0.007, rootHz: 300 } }],
+  ['vocoder, steady, wet 1', { vocoder: { amount: 1, warble: false, rootHz: 150 } }],
+];
+const voices = [];
+for (const [inst, vel] of [['flute', 0.85], ['flute', 0.3], ['flute-drive', 0.85], ['keys', 0.85], ['keys', 0.3], ['harp', 0.85], ['bells', 0.85], ['pluck', 0.85]]) {
+  const dry = await renderVoice(inst, vel, null);
+  for (const [name, plan] of plans) {
+    const w = await renderVoice(inst, vel, plan);
+    voices.push({ voice: `${inst} ${vel}`, plan: name, rmsShare: +(w.rms / dry.rms).toFixed(4), peakShare: +(w.peak / dry.peak).toFixed(4) });
+  }
+}
+window.__result = { bus, voices };
+document.body.textContent = JSON.stringify(window.__result, null, 1);
+</script>

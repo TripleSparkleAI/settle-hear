@@ -13,14 +13,18 @@
 // requestStart(why)              - start the sound now (a control's click); nothing while muted; true once it runs
 // BLOCK_DECIDE_MS                - how long a load-time ask may take before it counts as refused (250 ms)
 // onEngine(fn)                   - call fn(engine) now if the engine exists, else once it is built; returns an off()
-// setMaster(v) / getMaster()     - the master level, 0 .. 1
+// setMaster(v) / getMaster()     - the master level, 0 .. 1 (a fader's value; the gain is its square)
+// levelGain(v)                    - the master gain for a level: v squared, the volume law (lane VOLUMECURVE)
 // setReturn(name, v)             - the reverb or delay return level, 0 .. 1
 // isAway()                       - true while PAUSE ALL holds the page (settle-see's ticker state 'held')
 // pageHalted()                   - true while the pictures are halted for any reason (hidden tab, idle reader, held)
 // wantSound(token, on) / holdSound(s) / soundWanted() - THE DEMAND: a playing channel holds a token; a one-shot
 //                                  holds one for s seconds; the context runs only while some token is held
 // createChannel(E, opts)         - one mixer channel: input -> filter -> fader -> the pulse nodes -> master, with reverb
-//                                  and delay sends; opts.anchor names where it sits on screen for THE RADIAL PULSE
+//                                  and delay sends; opts.anchor names where it sits on screen for THE RADIAL PULSE;
+//                                  opts.out routes it through a bus (THE DJ'S DESK) instead of straight to the master;
+//                                  opts.insert puts a node between the input and the filter (THE MIX'S DUCK, duck.js);
+//                                  .output is its last node, read only
 // impulse(ctx, seconds, decay)   - a generated stereo reverb impulse: decorrelated noise under an exponential decay
 // noiseBuffer(ctx, seconds)      - a shared white-noise buffer (built once per context)
 // ramp(param, v, t, tau)         - setTargetAtTime with NaN and range guards
@@ -39,7 +43,8 @@
 //   0.35, a 2.6 kHz lowpass in the loop so repeats darken). Each channel sends to them with its own send levels.
 // - THE BACKGROUND RULE (lane SOUNDDOCTOR): the sound plays on like a video in a hidden tab and for an idle reader
 //   (settle-see's ticker 'hidden' or 'away' halt the pictures only). Three things stop it: MUTE ALL (the switch,
-//   control.js), PAUSE ALL (ticker 'held') and nothing to hear (no channel playing: THE DEMAND). MUTE ALL and PAUSE
+//   control.js), PAUSE ALL (ticker 'held') and nothing to hear (no channel playing: THE DEMAND). A master level of 0
+//   (the hero's volume at 0%, lane HEROPASS) counts as MUTE ALL. MUTE ALL and PAUSE
 //   ALL close the mute gain at once and suspend after 250 ms; nothing to hear suspends after sleepMs (1.5 s), so the
 //   fades finish first. The context is never left running silent. A suspend or an interruption the page did not ask
 //   for ('statechange' to 'suspended' or 'interrupted', E.selfSuspend false) is resumed at once while sound is wanted,
@@ -117,7 +122,7 @@ function build() {
   const ctx = factory();
   if (!ctx) return null;
   const master = ctx.createGain();
-  master.gain.value = 0.8;
+  master.gain.value = levelGain(masterLevel); // THE VOLUME (lane HEROSOUNDCTL): a level set before the build is kept, squared (lane VOLUMECURVE)
   const mute = ctx.createGain();
   mute.gain.value = 0;
   const limit = ctx.createDynamicsCompressor();
@@ -202,7 +207,8 @@ export function holdSound(seconds = 0.6) {
   id?.unref?.();
 }
 export function soundWanted() {
-  return sound.audible && !held && demand.size > 0;
+  // a master level of 0 (the hero's volume at 0%) is silence, so it is treated like MUTE ALL (lane HEROPASS)
+  return sound.audible && !held && demand.size > 0 && masterLevel > 0;
 }
 
 function resumeNow(why) {
@@ -274,7 +280,7 @@ function applySwitch(why = 'switch') {
   const wanted = soundWanted();
   if (soundLogOn()) soundLog('engine:apply', { why: typeof why === 'string' ? why : why?.type ?? 'switch', wanted, audible: sound.audible, muted: sound.muted, held, demand: demand.size, hidden: typeof document !== 'undefined' && !!document.hidden, ticker: tickerState, state: ctx.state }); // SOUNDLOG
   // the mute gain follows MUTE ALL and PAUSE ALL alone; whether the context runs follows what there is to hear
-  const silenced = !sound.audible || held;
+  const silenced = !sound.audible || held || masterLevel <= 0;
   ramp(E.mute.gain, silenced ? 0 : 1, t, silenced ? 0.04 : 0.2);
   if (wanted) {
     clearTimeout(E.sleep);
@@ -283,13 +289,13 @@ function applySwitch(why = 'switch') {
     if (ctx.state !== 'running' && ctx.state !== 'closed') resumeNow(`engine:${why}`);
     return;
   }
-  if (soundLogOn() && silenced) soundLog('gain:zero', { node: 'mute', why: !sound.audible ? 'not audible' : 'PAUSE ALL' }); // SOUNDLOG
+  if (soundLogOn() && silenced) soundLog('gain:zero', { node: 'mute', why: !sound.audible ? 'not audible' : held ? 'PAUSE ALL' : 'volume 0' }); // SOUNDLOG
   if (E.sleep) return;
   E.sleep = setTimeout(() => {
     E.sleep = null;
     // a start in trial is not suspended under the browser's feet: the decision comes first
     if (trial || soundWanted() || ctx.state !== 'running') return;
-    if (soundLogOn()) soundLog('ctx:suspend:call', { why: !sound.audible ? 'muted' : held ? 'PAUSE ALL' : 'nothing to hear' }); // SOUNDLOG
+    if (soundLogOn()) soundLog('ctx:suspend:call', { why: !sound.audible ? 'muted' : held ? 'PAUSE ALL' : masterLevel <= 0 ? 'volume 0' : 'nothing to hear' }); // SOUNDLOG
     E.selfSuspend = true;
     ctx.suspend?.().catch(() => {});
   }, silenced ? 250 : sleepMs);
@@ -442,8 +448,36 @@ export function unlockNow() {
   return E;
 }
 
+// THE VOLUME (lane HEROSOUNDCTL, navigator 2026-10-06): the master level is kept here, so a level set before the
+// context is built (a visitor's remembered volume on load) is the level the master starts at, and every fader that
+// moves it (the hero's volume line, the /hear page's master fader) hears the others through onMaster. The master sits
+// before the mute gain, so MUTE ALL still silences everything and the level survives it untouched.
+// THE SQUARED VOLUME (lane VOLUMECURVE, navigator 2026-10-06: "0..1"): the LEVEL is what a fader shows and what
+// setMaster, getMaster and onMaster carry; the master GAIN is the level squared, the standard volume law. So 1 is
+// loudness 1.0, the fresh 0.8 plays at 0.64, and 0.1 plays at 0.01 (40 dB down). Every fader of the one master sits
+// on the same curve because the square is taken here, once.
+let masterLevel = 0.8;
+const masterSubs = new Set();
+export function levelGain(v) {
+  const x = Math.min(1, Math.max(0, +v || 0));
+  return x * x;
+}
 export function setMaster(v) {
-  if (E) ramp(E.master.gain, Math.min(1, Math.max(0, +v || 0)), E.ctx.currentTime, 0.1);
+  const x = Math.min(1, Math.max(0, +v || 0));
+  const moved = x !== masterLevel;
+  const crossed = (x <= 0) !== (masterLevel <= 0);
+  masterLevel = x;
+  if (E) ramp(E.master.gain, levelGain(x), E.ctx.currentTime, 0.1);
+  // THE BACKGROUND RULE at 0%: a level of 0 closes the mute gain and suspends the context as MUTE ALL does, and any
+  // level above 0 wakes it (lane HEROPASS)
+  if (E && crossed) applySwitch('master');
+  if (moved) for (const fn of [...masterSubs]) { try { fn(x); } catch { /* a listener that throws stays quiet */ } }
+}
+
+// subscribe to the master level: fn(level) on every change; returns an unsubscribe
+export function onMaster(fn) {
+  masterSubs.add(fn);
+  return () => masterSubs.delete(fn);
 }
 
 export function masterAnalyser() {
@@ -476,7 +510,7 @@ export function tapBus(Eng, name) {
 }
 
 export function getMaster() {
-  return E ? E.master.gain.value : 0.8;
+  return masterLevel;
 }
 
 export function setReturn(name, v) {
@@ -484,7 +518,7 @@ export function setReturn(name, v) {
   ramp(E[name].output.gain, Math.min(1, Math.max(0, +v || 0)), E.ctx.currentTime, 0.1);
 }
 
-export function createChannel(Eng, { level = 0.6, filter = 12000, reverb = 0.2, delay = 0, fadeIn = 1.5, demand: demandOn = true, anchor = null } = {}) {
+export function createChannel(Eng, { level = 0.6, filter = 12000, reverb = 0.2, delay = 0, fadeIn = 1.5, demand: demandOn = true, anchor = null, out = null, insert = null } = {}) {
   const { ctx } = Eng;
   const input = ctx.createGain();
   const lp = ctx.createBiquadFilter();
@@ -500,16 +534,19 @@ export function createChannel(Eng, { level = 0.6, filter = 12000, reverb = 0.2, 
   // THE RADIAL PULSE (pulse.js): the swell, the brightening and the pan a passing wave gives this channel, after the
   // fader and before the master, so the channel's own level and sends never meet the wave's automation
   const P = pulseNodes(ctx);
-  input.connect(lp);
+  // opts.insert: a node between the input and the lowpass (THE MIX'S DUCK, duck.js duckGain, for a hearing)
+  if (insert) { input.connect(insert); insert.connect(lp); } else input.connect(lp);
   lp.connect(fader);
   fader.connect(P.gain);
   P.gain.connect(P.shelf);
   let tail = P.shelf;
   if (P.pan) { P.shelf.connect(P.pan); tail = P.pan; }
-  tail.connect(Eng.master);
+  // opts.out: a bus between the channel and the master (THE DJ'S DESK, dj-fx.js); the master by default
+  tail.connect(out ?? Eng.master);
   fader.connect(rev);
   fader.connect(dly);
-  const unpulse = registerPulseTarget({ anchor, ctx, gain: P.gain.gain, shelf: P.shelf.gain ?? null, pan: P.pan?.pan ?? null });
+  // node: the channel's last node, so the band tap (bands.js, lane SOUNDSHAKE) can listen to exactly these channels
+  const unpulse = registerPulseTarget({ anchor, ctx, gain: P.gain.gain, shelf: P.shelf.gain ?? null, pan: P.pan?.pan ?? null, node: tail });
   rev.connect(Eng.reverb.input);
   dly.connect(Eng.delay.input);
   let lvl = level;
@@ -523,6 +560,7 @@ export function createChannel(Eng, { level = 0.6, filter = 12000, reverb = 0.2, 
   want(true);
   return {
     input,
+    output: tail, // the channel's last node before its destination, read only (a measurement's tap)
     filter: lp,
     get level() { return lvl; },
     setLevel(v) { lvl = Math.min(1, Math.max(0, +v || 0)); apply(0.1); },
@@ -539,7 +577,7 @@ export function createChannel(Eng, { level = 0.6, filter = 12000, reverb = 0.2, 
       want(false);
       unpulse();
       setTimeout(() => {
-        for (const n of [input, lp, fader, rev, dly, P.gain, P.shelf, P.pan]) if (n) try { n.disconnect(); } catch { /* already gone */ }
+        for (const n of [input, insert, lp, fader, rev, dly, P.gain, P.shelf, P.pan]) if (n) try { n.disconnect(); } catch { /* already gone */ }
       }, 300);
     },
   };

@@ -19,7 +19,8 @@
 //   needs one line.
 // - The key signature applies to every note unless an accidental in the bar overrides it. K: takes a tonic and a
 //   mode (maj, m, min, mix, dor, phr, lyd, loc, aeo, ion) and the pipe keys HP / Hp (both read as A mixolydian
-//   with F# and C#, the Highland pipe scale written the usual way).
+//   with F# and C#, the Highland pipe scale written the usual way). A key with five or more accidentals takes
+//   the flat side when its tonic is spelled with a flat or is plain F (Db, Bbm, Ebm, Fphr), the sharp side otherwise.
 // - midi: ABC 'C' is middle C = midi 60, 'c' = 72. Lengths are in units of L: (default 1/8), converted to quarter
 //   beats (1/8 -> 0.5 beat).
 // </claudes_code_comments>
@@ -44,7 +45,10 @@ function readKey(field = 'C') {
   const word = m[3].toLowerCase();
   const key = word === '' ? 'maj' : Object.keys(MODE_SHIFT).find((k) => word.startsWith(k) && (k !== 'm' || !/^m[a-z]/.test(word) || word.startsWith('min'))) ?? 'maj';
   const majorPc = (pc + MODE_SHIFT[key]) % 12;
-  return { tonic: m[1] + m[2], mode: MODE_NAME[key], pc, sig: MAJOR_BY_PC[majorPc] ?? 0 };
+  let sig = MAJOR_BY_PC[majorPc] ?? 0;
+  // a flat tonic (or plain F) names the flat side: Db, Gb, Cb majors and their modes (Bbm, Ebm, Fphr) carry 5, 6, 7 flats
+  if (sig >= 5 && (m[2] === 'b' || (m[1] === 'F' && m[2] === ''))) sig -= 12;
+  return { tonic: m[1] + m[2], mode: MODE_NAME[key], pc, sig };
 }
 
 export function keyAccidentals(field) {

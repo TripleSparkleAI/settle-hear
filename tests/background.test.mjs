@@ -96,6 +96,30 @@ test('MUTE ALL still silences and suspends, and unmuting resumes', async () => {
   await wait(60);
 });
 
+test('a master level of 0 is MUTE ALL to the context: it suspends, and any level above 0 resumes (lane HEROPASS)', async () => {
+  const g = createGammaSound({ mode: 'love-528', level: 0.5 });
+  await wait(50);
+  assert.equal(ctx.state, 'running');
+  const was = engine.getMaster();
+  engine.setMaster(0);
+  // poll rather than sleep a fixed time: this file's hidden-tab symphony test below breaks when the file runs long
+  // under load (measured: +900 ms of waiting reds it 8 runs in 10 with 10 files in parallel, +500 ms never)
+  for (let i = 0; i < 100 && ctx.state !== 'suspended'; i++) await wait(10);
+  assert.equal(ctx.state, 'suspended', 'the volume at 0% left the context running silent');
+  assert.equal(engine.getEngine().mute.gain.value, 0, 'the mute gain closes as MUTE ALL closes it');
+  assert.equal(sound.muted, false, 'it is not MUTE ALL itself: the switch is untouched');
+  engine.setMaster(0.05);
+  await wait(30);
+  assert.equal(ctx.state, 'running', 'a level above 0 wakes it');
+  // a level that only moves above 0 never suspends (the control): no sleep is armed at all
+  engine.setMaster(0.6);
+  assert.equal(engine.getEngine().sleep ?? null, null, 'a level above 0 armed a suspend');
+  assert.equal(ctx.state, 'running');
+  engine.setMaster(was);
+  g.dispose();
+  await wait(60);
+});
+
 test('nothing to hear: the context is suspended, never left running silent; a sound wakes it', async () => {
   const g = createGammaSound({ mode: 'gamma-focus', level: 0.5 });
   await wait(50);

@@ -6,7 +6,7 @@
 // VOCODER                    - the vocoder's fixed numbers: band count, the band edges (Hz), Q, the follower's
 //                              cutoff (Hz), the follower's makeup gain, the output gain
 // vocoderBands(n, lo, hi)    - n band centres spaced evenly in log frequency from lo to hi
-// absCurve(n)                - the rectifier's WaveShaper curve, |x|
+// absCurve(n)                - the rectifier's WaveShaper curve, |x|, an odd point count so 0 maps to 0
 // createVocoder(ctx, opts)   - { modulator, carrier, output, bands: [{ hz, mod, follow, gain, car }], setDepth(v),
 //                              dispose() }: the modulator's band envelopes open the carrier's bands
 // createRingMod(ctx, opts)   - { input, output, osc, lfo, setRate(hz), setDepth(v), dispose() }: input x a sine,
@@ -44,7 +44,10 @@ export function vocoderBands(n = VOCODER.bands, lo = VOCODER.lo, hi = VOCODER.hi
   return Array.from({ length: k }, (_, i) => a * Math.pow(b / a, i / (k - 1)));
 }
 
-export function absCurve(n = 512) {
+// an odd point count puts a point at exactly 0 (lane DJOVERDRIVE): with 512 points the input 0 fell between two points
+// and read |x| = 0.00196, which the follower's makeup turned into a band left 1% open, so the carrier leaked through
+// a silent modulator (measured: peak 0.00125 from a vocoder with no voice)
+export function absCurve(n = 513) {
   const c = new Float32Array(n);
   for (let i = 0; i < n; i++) c[i] = Math.abs((2 * i) / (n - 1) - 1);
   return c;

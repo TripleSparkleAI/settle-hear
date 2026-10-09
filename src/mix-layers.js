@@ -8,13 +8,16 @@
 // MIX_LEVELS                 - each layer's level (the tune sits under the groove; the hum and the textures are
 //                              capped by their own modules)
 // BASS_STYLES_PLAY           - the four bass styles as players: sub (off-beat sine), rolling (sixteenths on the root
-//                              and fifth), acid (a 303 line, voice-acid.js), organ (one held pedal note a bar)
+//                              and fifth), acid (a 303 line, voice-acid.js), organ (one held pedal note a bar); sub
+//                              and rolling leave the last beat to a turnaround (opts.turn, lane DJWIRE)
+// bassTurn(ctx, out, t0, beatDur, opts) - a trained bar's turnaround: root, third, fifth, seventh on the last beat
 // LEAD_LIFT                  - each lead instrument's level against the flute it replaced (lane MELODYFX)
 // arpVelocity / answerVelocity - the velocity that gives the arps and the answer their peak on any instrument
 // octaveShift(inst, centre)  - whole octaves that move a tune's middle toward the instrument's register
 // swingAt(at, swing)         - an off-beat eighth (at x.5) pushed late by the set's swing, in beats
 // createMixSet(ctx, out, { seed }) - the set: bar(t0, d, beatDur) plays one decision; state() names what is playing
-//                              (layers, rack, beds, moves); dispose() fades and frees it
+//                              (layers, rack, beds, moves); muteSlot(slot, on, t0) closes one part's bus (lane
+//                              McKUSKER: the lead, for 432 Hz McKUSKER MODE's mute); dispose() fades and frees it
 //
 // ** Technical Review **
 // - THE SIGNAL FLOW:
@@ -30,7 +33,17 @@
 //   influence window and, in its motif variant, the window's motif slowed right down: the set carries the sets
 //   before it into the quiet.
 // - CALL AND RESPONSE: on the second bar of each two, the ANSWER voice plays the first three notes the lead played
-//   in the bar before, in the bar's second half, on the set's answer instrument at its own register.
+//   in the bar before, in the bar's second half, on the set's answer instrument at its own register. When the set's
+//   answer is THE ECHO GUITAR (lane ECHOGUITAR, echoguitar.js) it plays its own phrase instead, from beat 1.5, a card
+//   of its phrase deck dealt once a set, in the bar's key, through its tempo-synced echo and small room.
+// - THE GUITARS (lanes ECHOGUITAR and DJGUITARS): dealt as the answer, THE ECHO GUITAR or THE FUZZ LEAD answers with
+//   its own phrase from beat 1.5 on every second bar; dealt as the arps, THE PHASE GUITAR plays the bar's chord (a
+//   piece's own chord when a piece plays) as its set's part (an arpeggio, a strum or a swell) through its set's
+//   modulation (the phaser or the flanger). Every deck (one card a set) and every pedalboard (built once a set, so its
+//   LFOs run free across the bars, and let ring out when the set changes) lives in djguitars.js createSetGuitars, and
+//   this file makes one call a bar: the site's first load carries only that glue. The module (djguitars.js, which
+//   re-exports echoguitar.js) loads on demand through echoguitar-lazy.js, fetched when the set is made; a bar before
+//   it arrives plays nothing in that part. A base's own chords still play as the base's triads.
 // - THE VOICE CHAINS (lane MELODYFX, voice-fx.js): the lead, the arps, the answer and the chop each play into their
 //   own bus, whose chain (a warm drive and two to four more) the brain settles per set (d.voices). The clear flute's
 //   bus has no chain. A new set's chains crossfade in over one beat on the bar line. The lead is moved by whole
@@ -44,6 +57,16 @@
 //   a library), the drums are the base's four drum parts through the family's kit (bases/base-play.js playBasePart),
 //   the bass and the arps are the base's bass and chords when it carries them, and the lead is gated to the base's
 //   hats and ducked under its kick (gateNotesToBase). Without a base every layer plays as before.
+// - THE TRAINED SET (lane DJWIRE): when the decision carries a trained bar (d.trained.groove), the drums are that
+//   bar's settled steps through the set's kit (dj-trained-play.js: the learned levels, hat voices, clap or snare,
+//   the family's swing and played feel, the crash where it fired), in place of the base's drums and the family
+//   pattern; a bar whose settled turnaround fired walks the bass up root, third, fifth, seventh on its last beat
+//   (sub and rolling bass). STAGE 3's seam (lane DJNOTES, dj-trained-notes.js): when the trained bar carries a
+//   piece's notes (d.trained.notes), its bass notes replace the style's bass, its arp notes play on the set's arp
+//   instrument in place of the chord eighths, and its chords sound as a soft triad under the pad. Since lane
+//   PIECESPLAY the lead is THE PIECE'S OWN LEAD (d.lead.kind 'piece': d.notes are the piece's lead notes, each on its
+//   sixteenth with the piece's swing and its velocity as an accent), and the bar's root and chord are the piece's,
+//   so the pad, the drone and the answer follow the piece's key. See SETTLE/DJ_CHANNEL.md.
 // - Every pitch from midiHz (A = 432). Everything is scheduled on the audio clock for the bar ahead.
 // </claudes_code_comments>
 
@@ -57,6 +80,8 @@ import { playBasePart, gateNotesToBase } from './bases/base-play.js'; // THE BAS
 import { acidLine, playAcidBar } from './voice-acid.js';
 import { renderPhrase, chopBar, CHOP_PATTERNS } from './voice-chop.js';
 import { createVoiceBuses, HOUSE_SLOTS, REGISTER, CLEAN_INSTRUMENTS, velocityFor, INST_PEAK } from './voice-fx.js';
+import { playTrainedDrums } from './dj-trained-play.js'; // THE TRAINED DJ (lane DJWIRE)
+import { loadEchoGuitar, echoGuitarNow } from './echoguitar-lazy.js'; // THE ECHO GUITAR (lane ECHOGUITAR), on demand
 
 // THE VOICE CHAINS (lane MELODYFX): the bar's notes moved by whole octaves toward the instrument's home pitch, the
 // off-beat eighths pushed late by the set's swing, the velocity varied a little note by note (fixed for a bar)
@@ -84,15 +109,15 @@ const expo = (p, v, t) => { try { p.exponentialRampToValueAtTime(Math.max(1e-4, 
 const bassOf = (m) => { let x = m; while (midiHz(x) > 80) x -= 12; while (midiHz(x) < 38) x += 12; return x; };
 
 export const BASS_STYLES_PLAY = {
-  sub(ctx, out, t0, beatDur, { chord, energy }) {
+  sub(ctx, out, t0, beatDur, { chord, energy, turn = false }) {
     const f = midiHz(bassOf(chord[0]));
-    for (let b = 0; b < 4; b++) strike(ctx, out, 'sine', f, t0 + b * beatDur + beatDur / 2, { peak: MIX_LEVELS.bass * (0.6 + 0.4 * energy), attack: 0.01, decay: beatDur * 0.4 });
+    for (let b = 0; b < (turn ? 3 : 4); b++) strike(ctx, out, 'sine', f, t0 + b * beatDur + beatDur / 2, { peak: MIX_LEVELS.bass * (0.6 + 0.4 * energy), attack: 0.01, decay: beatDur * 0.4 });
   },
-  rolling(ctx, out, t0, beatDur, { chord, energy }) {
+  rolling(ctx, out, t0, beatDur, { chord, energy, turn = false }) {
     const r = bassOf(chord[0]);
     const seq = [r, r, r + 7, r, r, r + 12, r + 7, r];
     for (let i = 0; i < 16; i++) {
-      if (i % 4 === 0) continue; // the kick's step stays clear
+      if (i % 4 === 0 || (turn && i >= 12)) continue; // the kick's step stays clear; a turnaround takes the last beat
       strike(ctx, out, 'triangle', midiHz(seq[i % seq.length]), t0 + (i * beatDur) / 4, { peak: MIX_LEVELS.bass * 0.7 * (0.6 + 0.4 * energy), attack: 0.005, decay: beatDur * 0.22, filter: 600 });
     }
   },
@@ -108,7 +133,17 @@ export const BASS_STYLES_PLAY = {
   },
 };
 
-export function createMixSet(ctx, out, { seed = 1 } = {}) {
+// THE TURNAROUND (lane DJWIRE): a trained bar whose settled turnaround fired walks the bass up root, third, fifth,
+// seventh in sixteenths on its last beat (the sub and the rolling bass; the acid line and the organ keep their own)
+export function bassTurn(ctx, out, t0, beatDur, { chord, energy = 1, mode = 'ionian', style = 'sub' } = {}) {
+  if (style !== 'sub' && style !== 'rolling') return 0;
+  const r = bassOf(chord[0]);
+  const third = ['ionian', 'lydian', 'mixolydian'].includes(mode) ? 4 : 3;
+  [0, third, 7, 10].forEach((d, i) => strike(ctx, out, 'triangle', midiHz(r + d), t0 + 3 * beatDur + (i * beatDur) / 4, { peak: MIX_LEVELS.bass * 0.7 * (0.6 + 0.4 * energy), attack: 0.005, decay: beatDur * 0.2, filter: 700 }));
+  return 4;
+}
+
+export function createMixSet(ctx, out, { seed = 1, wrapVoices = null } = {}) {
   const mixIn = ctx.createGain();
   const drumsIn = ctx.createGain();
   drumsIn.gain.value = MIX_LEVELS.drums;
@@ -144,13 +179,20 @@ export function createMixSet(ctx, out, { seed = 1 } = {}) {
   droneLp.connect(droneG);
 
   // THE VOICE CHAINS (lane MELODYFX): one bus per melodic part, its own chain, into the mix (and so the rack)
-  const voiceBus = createVoiceBuses(ctx, mixIn, HOUSE_SLOTS);
+  const voiceBus = (typeof wrapVoices === 'function' ? wrapVoices : (b) => b)(createVoiceBuses(ctx, mixIn, HOUSE_SLOTS)); // lane DJOVERDRIVE: THE DJ's colour hook (dj-colour.js colourBuses)
   let rack = null;
   let rackKeys = '';
   const retiring = new Set();
   const beds = { pad: null, texture: null, hum: null };
   let lastLead = [];
   let chop = { label: null, buffer: null };
+  // THE ECHO GUITAR's phrases (lane ECHOGUITAR): a deck, one card a set, so every phrase comes round before any repeats
+  loadEchoGuitar().catch(() => { /* the guitar stays silent until a later set loads it */ });
+  // THE PSYCH GUITARS (lane DJGUITARS): the set's two guitars (their decks and boards) live in the on-demand module,
+  // so the site's first load carries only this glue; the first bar that deals a guitar fetches the module and plays
+  // nothing in that part, and the next bar plays it
+  let psych = null;
+  const guitars = () => { const G = echoGuitarNow(); if (!G) { loadEchoGuitar().catch(() => {}); return null; } return (psych ??= G.createSetGuitars(ctx, { seed })); };
   let dead = false;
   let lastState = { layers: {}, rack: [], beds: [], moves: [] };
 
@@ -202,15 +244,25 @@ export function createMixSet(ctx, out, { seed = 1 } = {}) {
       const B = d.bases?.realised ?? null;
       const bBar = d.bases?.bar ?? 0;
       const kit = DRUM_KITS[(DRUM_PATTERNS[d.drumFamily] ?? DRUM_PATTERNS.chicago).kit] ?? DRUM_KITS['909'];
-      // DRUMS from the base's four drum parts, else from the family's pattern
+      // DRUMS: the trained set's settled bar (lane DJWIRE), else the base's four drum parts, else the family's pattern
+      const TG = d.trained?.groove ?? null;
       if (y.drums) {
-        if (B) for (const p of ['kick', 'snare', 'hats', 'perc']) playBasePart(ctx, drumsIn, t0, beatDur, B, p, { bar: bBar, energy: e, kit });
+        if (TG) playTrainedDrums(ctx, drumsIn, t0, beatDur, TG, { kit, feel: d.trained.feel, clap: d.trained.clap, energy: e, bar: d.bar });
+        else if (B) for (const p of ['kick', 'snare', 'hats', 'perc']) playBasePart(ctx, drumsIn, t0, beatDur, B, p, { bar: bBar, energy: e, kit });
         else playPattern(ctx, drumsIn, t0, beatDur, DRUM_PATTERNS[d.drumFamily] ?? DRUM_PATTERNS.chicago, { energy: e, tune: 0 });
       }
-      // BASS from the base when it carries one, else by the set's style
-      if (y.bass) {
+      // STAGE 3's seam (lane DJNOTES, dj-trained-notes.js): a piece's own pitched notes for this bar, by role
+      const PN = d.trained?.notes ?? null;
+      const pnStep = beatDur / 4;
+      const pnSwing = Math.max(0, Math.min(0.4, Number(d.trained?.feel?.swing) || 0));
+      const pnAt = (s) => t0 + (s + (s % 2 ? pnSwing : 0)) * pnStep;
+      // BASS from a piece's bass notes, else the base when it carries one, else by the set's style
+      if (y.bass && PN?.bass?.length) {
+        for (const [s, dur, p, v] of PN.bass) strike(ctx, mixIn, 'triangle', midiHz(bassOf(p)), pnAt(s), { peak: MIX_LEVELS.bass * 0.7 * (0.6 + 0.4 * e) * (v / 127), attack: 0.005, decay: Math.max(0.05, Math.min(dur * pnStep, beatDur * 2)), filter: 700 });
+      } else if (y.bass) {
         if (B?.parts?.bass) playBasePart(ctx, mixIn, t0, beatDur, B, 'bass', { bar: bBar, energy: e });
-        else (BASS_STYLES_PLAY[d.bassStyle] ?? BASS_STYLES_PLAY.sub)(ctx, mixIn, t0, beatDur, { chord: d.chord, energy: e, seed: (seed + d.plan.set) >>> 0, mode: d.mode });
+        else (BASS_STYLES_PLAY[d.bassStyle] ?? BASS_STYLES_PLAY.sub)(ctx, mixIn, t0, beatDur, { chord: d.chord, energy: e, seed: (seed + d.plan.set) >>> 0, mode: d.mode, turn: !!TG?.events?.turn });
+        if (TG?.events?.turn && !B?.parts?.bass) bassTurn(ctx, mixIn, t0, beatDur, { chord: d.chord, energy: e, mode: d.mode, style: d.bassStyle });
       }
       // THE VOICE CHAINS: each part takes the set's instrument and chain (a new set crossfades over one beat)
       const P = d.voices;
@@ -224,12 +276,18 @@ export function createMixSet(ctx, out, { seed = 1 } = {}) {
       const leadLevel = (d.surfacing ? MIX_LEVELS.surfacing : MIX_LEVELS.lead) * (CLEAN_INSTRUMENTS.has(leadV.inst) ? 1 : LEAD_LIFT[leadV.inst] ?? 1);
       // over a base the tune is gated to its hats (in a build or at the peak) and ducked under its kick
       const leadNotes = B ? gateNotesToBase(B, bBar, d.notes, { gate: d.section === 'build' || d.section === 'peak' ? 'hats' : null, duck: 0.4 }) : d.notes.map((n) => ({ ...n, level: 1 }));
+      // a piece's own lead (lane PIECESPLAY): each note on its sixteenth with the piece's swing, its velocity an accent
+      const pieceLead = d.lead?.kind === 'piece';
+      const leadAt = (n) => (pieceLead && Number.isFinite(n.step) ? pnAt(n.step) : t0 + swingAt(n.at, swing) * beatDur);
+      const leadVel = (n) => (pieceLead && Number.isFinite(n.vel) ? 0.75 + 0.25 * Math.min(1, n.vel / 127) : 1);
       // legato: a note holds to the next one (the keys a touch past it, a pedal), never a detached staccato
       const legato = leadV.inst === 'keys' ? 1.08 : 1;
-      if (y.lead) leadNotes.forEach((n, i) => { if (n.midi != null) playNote(ctx, into('lead'), leadV.inst, midiHz(n.midi + leadShift), t0 + swingAt(n.at, swing) * beatDur, n.beats * beatDur * legato, leadLevel * n.level * humanize(d.bar, i)); });
+      if (y.lead) leadNotes.forEach((n, i) => { if (n.midi != null) playNote(ctx, into('lead'), leadV.inst, midiHz(n.midi + leadShift), leadAt(n), n.beats * beatDur * legato, leadLevel * n.level * leadVel(n) * humanize(d.bar, i)); });
       // ANSWER: the lead's opening three notes of the bar before, in this bar's second half, at the answer
       // instrument's own register (lane MELODYFX: no longer a bell an octave above the tune)
       const ansV = voiceOf('answer');
+      // THE ECHO GUITAR and THE FUZZ LEAD answer with their own phrases (THE GUITARS' call below); they are not
+      // playNote instruments, so this line plays nothing for them
       if (y.answer && d.bar % 2 === 0 && lastLead.length) {
         const sh = octaveShift(ansV.inst, lastLead.reduce((a, m) => a + m, 0) / lastLead.length);
         lastLead.slice(0, 3).forEach((m, i) => playNote(ctx, into('answer'), ansV.inst, midiHz(m + sh), t0 + (2 + i * 0.5) * beatDur, beatDur * 0.9, answerVelocity(ansV.inst) * humanize(d.bar, i + 7)));
@@ -238,7 +296,20 @@ export function createMixSet(ctx, out, { seed = 1 } = {}) {
       // ARPS: the base's chords when it carries them, else the chord as eighth notes on the set's arp instrument,
       // in the chord's own octave, swung, every other note softer (lane MELODYFX: was sixteenth triangles an octave up)
       const arpV = voiceOf('arps');
-      if (y.arps && B?.parts?.chords) playBasePart(ctx, into('arps'), t0, beatDur, B, 'chords', { bar: bBar, energy: e, level: MIX_LEVELS.arps * 1.5 });
+      // a piece's arp notes (stage 3's seam) on the set's arp instrument; its chords as a soft held triad under the pad
+      // THE GUITARS (lanes ECHOGUITAR and DJGUITARS): dealt, the echo guitar or the fuzz lead answers every second bar
+      // and the phase guitar plays the bar's chord as its set's part (djguitars.js createSetGuitars bar(), which holds
+      // their decks and boards). They are not playNote instruments, so the answer and arp lines play nothing for them
+      const phaseGuitar = arpV.inst === 'phase-guitar';
+      if (/-guitar|fuzz/.test(ansV.inst + arpV.inst)) try { guitars()?.bar(into, d, t0, beatDur, y, ansV.inst, arpV.inst, answerVelocity(ansV.inst) * humanize(d.bar, 7), arpVelocity(arpV.inst, e), swing); } catch { /* a bar that fails stays silent */ }
+      if (y.arps && PN?.arp?.length) {
+        const sh = octaveShift(arpV.inst, PN.arp.reduce((a, n) => a + n[2], 0) / PN.arp.length);
+        for (const [s, dur, p, v] of PN.arp) playNote(ctx, into('arps'), arpV.inst, midiHz(p + sh), pnAt(s), Math.max(0.05, dur * pnStep * 0.9), arpVelocity(arpV.inst, e) * (v / 127));
+      }
+      if (y.pad && PN?.chords?.length) {
+        for (const [s, dur, p, v] of PN.chords) strike(ctx, mixIn, 'triangle', midiHz(p), pnAt(s), { peak: 0.03 * (0.55 + 0.45 * e) * (v / 127), attack: 0.06, decay: Math.max(0.1, Math.min(dur * pnStep, 4 * beatDur)), filter: 1400 });
+      }
+      if (PN?.arp?.length || phaseGuitar) { /* the piece's arps or the phase guitar played above */ } else if (y.arps && B?.parts?.chords) playBasePart(ctx, into('arps'), t0, beatDur, B, 'chords', { bar: bBar, energy: e, level: MIX_LEVELS.arps * 1.5 });
       else if (y.arps) {
         const c = d.chord;
         const seq = [c[0], c[1], c[2], c[0] + 12, c[2], c[1], c[0], c[2]];
@@ -270,6 +341,7 @@ export function createMixSet(ctx, out, { seed = 1 } = {}) {
       }
       lastState = {
         base: B ? { id: B.id, bar: bBar % Math.max(1, B.bars), slices: B.slices ?? null } : null,
+        trained: d.trained ? { family: d.trained.family, block: d.trained.block, drums: !!(y.drums && TG), turn: !!TG?.events?.turn, notes: PN ? Object.fromEntries(Object.entries(PN).map(([k, v]) => [k, v.length])) : null } : null,
         layers: { ...y },
         rack: rack.r.amounts(),
         beds: Object.entries(beds).filter(([, v]) => v).map(([k]) => k),
@@ -280,6 +352,7 @@ export function createMixSet(ctx, out, { seed = 1 } = {}) {
     },
     state() { return { ...lastState, cost: rack?.r.cost ?? 0, nodes: rack?.r.nodes ?? 0 }; },
     get rack() { return rack?.r ?? null; },
+    muteSlot(slot, on, t0 = ctx.currentTime) { if (!dead) voiceBus.mute(slot, !!on, t0); },
     dispose() {
       if (dead) return;
       dead = true;
@@ -287,6 +360,7 @@ export function createMixSet(ctx, out, { seed = 1 } = {}) {
       at(fade.gain, fade.gain.value, t);
       lin(fade.gain, 0, t + 0.3);
       for (const b of Object.values(beds)) try { b?.stop(t); } catch { /* gone */ }
+      try { psych?.dispose(t + 0.3); } catch { /* gone */ }
       const id = setTimeout(() => {
         for (const s of [rack, ...retiring]) { if (!s) continue; s.r.dispose(); try { s.f.disconnect(); } catch { /* gone */ } }
         voiceBus.dispose();

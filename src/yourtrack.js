@@ -103,7 +103,8 @@ export function listenSets({ target = typeof window !== 'undefined' ? window : n
     const d = e?.detail ?? {};
     hooked = true;
     const set = Number.isFinite(d.set) ? d.set : null;
-    fire(set, d.adjusted, d.reason ?? 'set', (set != null ? bySet.get(set) : null) ?? prev ?? cur);
+    // a track that is not THE DJ's set (lane DJSILENCE: a binaural mode's track) brings its own snapshot
+    fire(set, d.adjusted, d.reason ?? 'set', (d.snapshot && typeof d.snapshot === 'object' ? d.snapshot : null) ?? (set != null ? bySet.get(set) : null) ?? prev ?? cur);
   };
   const onLive = (s) => {
     const before = cur;

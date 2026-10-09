@@ -130,3 +130,18 @@ test('DEGRADING: a DJ with no set hooks still cycles on a theme change; an idle 
   idle.set({ live: false, theme: null });
   assert.equal(none.length, 0);
 });
+
+test('THE SET LISTENER (lane DJSILENCE): a track that is not THE DJ\'s set ends with its own snapshot, so the window rates it', () => {
+  const live = liveStore({ live: true, theme: 'crystals', set: 4 });
+  const T = target();
+  const got = [];
+  const off = listenSets({ target: T, live, onCycle: (e) => got.push(e), defer: (f) => f() });
+  T.fire('settle-hear:set', { set: null, reason: 'track', snapshot: { live: true, tag: 'SCHU.mode.v1.144B783', mode: 'schumann' } });
+  assert.equal(got.length, 1);
+  assert.equal(got[0].reason, 'track');
+  assert.equal(got[0].snapshot.tag, 'SCHU.mode.v1.144B783', 'the ended mode\'s own snapshot, not THE DJ\'s state');
+  // without one, the snapshot is still THE DJ's own, as before
+  T.fire('settle-hear:set', { set: null, reason: 'track' });
+  assert.equal(got[1].snapshot.theme, 'crystals');
+  off();
+});

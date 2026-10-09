@@ -23,8 +23,10 @@
 //   then update() just keeps the latest params, so the first sound is already in step with the picture.
 // - Events are derived from the stats stream, not from the renderer: phase changing to 'settled' fires the chime
 //   chord; index changing fires a ping; power rising fires a click (with max when power reaches maxPower).
-// - One shared scheduler (setInterval, 60 ms) ticks every hearing's grain voices with a 120 ms look-ahead (1.5 s in a
-//   hidden tab, whose timers may fire once a second), only while sound is audible and PAUSE ALL is off.
+// - One shared scheduler (THE SOUND CLOCK, soundclock.js, every 60 ms) ticks every hearing's grain voices with a
+//   120 ms look-ahead, only while sound is audible and PAUSE ALL is off. The clock is a worker's timer, so a hidden
+//   tab's grains run as a visible one's (lane DJSILENCE); on the page-timer fallback (no Worker) a hidden tab takes a
+//   1.5 s look-ahead, since its timers may fire once a second.
 // - A hearing falls quiet when its stats stop for STALE_MS (the picture paused, scrolled off screen, or drawn still
 //   under reduced motion) and returns with the next frame: sound follows a MOVING picture. When the PAGE halted the
 //   picture (a hidden tab, an idle reader: engine pageHalted()) it holds its last sound instead (lane SOUNDDOCTOR).
@@ -40,6 +42,8 @@ import { makeVoice } from './voices.js';
 import { armUnlock, createChannel, onEngine, getEngine, isAway, pageHalted } from './engine.js';
 import { heroBus, feedHeroInput } from './heroinput.js';
 import { sound } from './control.js';
+import { soundEvery, soundClockSteady } from './soundclock.js';
+import { duckGain } from './duck.js';
 import { soundLog, soundLogOn } from './soundlog.js'; // SOUNDLOG
 let hearIds = 0; // SOUNDLOG
 
@@ -54,25 +58,25 @@ export const HIDDEN_AHEAD = 1.5;
 let timer = null;
 
 function scheduler() {
-  if (timer || typeof setInterval === 'undefined') return;
-  timer = setInterval(() => {
+  if (timer) return;
+  // THE SOUND CLOCK (lane DJSILENCE, soundclock.js): a worker's tick, so a hidden tab's grains run as a visible one's
+  timer = soundEvery(60, () => {
     const E = getEngine();
     if (!E || !sound.audible || isAway()) return;
     const t0 = E.ctx.currentTime;
     const wall = Date.now();
     // a hidden tab's timer may fire once a second: schedule the grains past it (the background rule)
-    const ahead = typeof document !== 'undefined' && document.hidden ? HIDDEN_AHEAD : 0.12;
+    const ahead = typeof document !== 'undefined' && document.hidden && !soundClockSteady() ? HIDDEN_AHEAD : 0.12;
     for (const h of live) {
       h._check(wall);
       h._tick(t0, t0 + ahead);
     }
-  }, 60);
-  timer.unref?.();
+  });
 }
 
 function unschedule() {
   if (live.size || !timer) return;
-  clearInterval(timer);
+  timer.stop();
   timer = null;
 }
 
@@ -86,6 +90,7 @@ export function createHearing({ preset = 'crackle', level, lean = 0.9, pull = 0.
   let lvl = level ?? P.level;
   let on = !!playing;
   let ch = null;
+  let dk = null;
   let voices = {};
   let last = soundParams(null, { lean, pull, hot, cold });
   let heldLevel = 0;
@@ -138,7 +143,9 @@ export function createHearing({ preset = 'crackle', level, lean = 0.9, pull = 0.
 
   const offEngine = onEngine((E) => {
     if (dead) return;
-    ch = createChannel(E, { level: lvl, ...P.fx });
+    // THE MIX'S DUCK (lane DJSILENCE, duck.js): a drag-box drop dips the picture's static under the drop
+    dk = duckGain(E.ctx, 'static');
+    ch = createChannel(E, { level: lvl, ...P.fx, insert: dk.node });
     // a copy of the picture's sound, before its fader, into the 'picture' tap: the vocoder's modulator
     try { ch.input.connect(heroBus(E)); } catch { /* a context without the bus */ }
     apply();
@@ -230,6 +237,8 @@ export function createHearing({ preset = 'crackle', level, lean = 0.9, pull = 0.
       disposeVoices();
       ch?.dispose();
       ch = null;
+      dk?.off();
+      dk = null;
       subs.clear();
     },
   };

@@ -136,7 +136,7 @@ test('a stopped hearing builds its channel only: no oscillators run until it is 
   const before = nodes;
   const h = createHearing({ preset: 'hero', playing: false });
   h.update(cooling(5));
-  assert.equal(nodes - before, 8, 'input, filter, fader, two sends, and the three radial pulse nodes (the swell, the shelf, the pan)');
+  assert.equal(nodes - before, 9, 'input, THE DUCK\'s gain (lane DJSILENCE), filter, fader, two sends, and the three radial pulse nodes (the swell, the shelf, the pan)');
   h.play();
   assert.ok(nodes - before > 20, 'played: every voice of the hero is built');
   h.dispose();

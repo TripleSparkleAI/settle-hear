@@ -11,10 +11,10 @@
 // flushSoundLog()             - hand the pending batch to the sink now
 //
 // ** Technical Review **
-// - Off by default. The site turns it on in a dev build or with ?soundlog=1 (sites/settle-site/src/soundlog.js),
+// - Off by default. The site turns it on in a dev build or with ?soundlog=1 (SETTLE/settle-site/src/soundlog.js),
 //   before any sound is built. Every call site checks soundLogOn() first, so the cost when off is one boolean read.
 // - Events go to the console under one prefix, '[soundlog]', and into a pending batch that the sink takes every
-//   1.5 s (the site's sink POSTs it to the dev server, which appends it to sites/settle-site/.devlogs/sound.jsonl).
+//   1.5 s (the site's sink POSTs it to the dev server, which appends it to SETTLE/settle-site/.devlogs/sound.jsonl).
 // - The engine logs each resume and suspend it asks for (ctx:resume:call, ctx:suspend:call, with the reason); the
 //   site logs every statechange and every promise's result, so a change nobody asked for has no matching call.
 // </claudes_code_comments>

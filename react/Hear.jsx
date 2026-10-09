@@ -13,7 +13,7 @@
 //                                   while the browser holds the sound back (the switch's `blocked`) it pulses red,
 //                                   shows "sound waits for your first click" on hover and focus, and says it once
 //                                   to a screen reader (lane AUTOSTART)
-// (a11y.js) percentText / hertzText / muteAllTitle - a slider's spoken value with its unit ("80 percent",
+// (a11y.js) percentText / hertzText / levelText / muteAllTitle - a slider's spoken value with its unit ("80 percent",
 //                                   "12000 hertz") and MUTE ALL's tooltip with its key (lane A11YSOUND)
 // HearSettle(props)               - <Settle> from settle-see with sound: hear="crackle" picks the preset; every
 //                                   other prop goes to <Settle>; hearControl places the play/stop button
@@ -21,7 +21,7 @@
 //                                   onHearToggle(next) make it controlled
 // HearMixer({ hear, units })      - a small mixer for one hearing: fader, one slider per voice, reverb, delay, tone;
 //                                   every slider speaks its value with its unit (units.percent, units.hertz)
-// MasterFader({ label, units })   - the page's master level, spoken as a percent
+// MasterFader({ label, units })   - the page's master level 0 to 1, shown and spoken as the number (the gain is its square)
 // useGammaSound({ enabled, mode, carrier, level }) - a 40 Hz gamma sound (binaural.js) alive while enabled; returns
 //                                   its state ({ mode, carrier, level, playing, pair }); props steer it live
 //
@@ -43,9 +43,9 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Settle } from 'settle-see/react';
-import { createHearing, sound, VOICES, VOICE_NOTES, setMaster, getMaster, createGammaSound } from '../src/index.js';
+import { createHearing, sound, VOICES, VOICE_NOTES, setMaster, getMaster, onMaster, createGammaSound } from '../src/index.js';
 import { muteAllPulseClass } from './muteall.js';
-import { percentText, hertzText, muteAllTitle } from './a11y.js';
+import { percentText, hertzText, levelText, muteAllTitle } from './a11y.js';
 import './hear.css';
 
 const reduced = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -226,7 +226,7 @@ export function HearSettle({ hear = 'crackle', hearLevel, hearLabel, hearWords =
 }
 
 // a slider's spoken value with its unit: a 0..1 level is a percent, the tone a frequency (lane A11YSOUND, a11y.js)
-const UNITS = { percent: percentText, hertz: hertzText };
+const UNITS = { percent: percentText, hertz: hertzText, level: levelText };
 
 export function HearMixer({ hear, voices = VOICES, units = null }) {
   const U = { ...UNITS, ...(units || {}) };
@@ -262,10 +262,12 @@ export function HearMixer({ hear, voices = VOICES, units = null }) {
 export function MasterFader({ label = 'master level', units = null }) {
   const U = { ...UNITS, ...(units || {}) };
   const [v, set] = useState(getMaster());
+  // another fader moving the same master (the hero's volume line, lane HEROSOUNDCTL) moves this one too
+  useEffect(() => onMaster(set), []);
   return (
     <label className="hear-mixer__row hear-mixer__row--master">
       <span className="hear-mixer__name">master</span>
-      <input type="range" min={0} max={1} step={0.01} value={v} onChange={(e) => { set(+e.target.value); setMaster(+e.target.value); }} aria-label={label} aria-valuetext={U.percent(v)} />
+      <input type="range" min={0} max={1} step={0.01} value={v} onChange={(e) => { set(+e.target.value); setMaster(+e.target.value); }} aria-label={label} aria-valuetext={U.level(v)} />
       <span className="hear-mixer__val">{v.toFixed(2)}</span>
     </label>
   );

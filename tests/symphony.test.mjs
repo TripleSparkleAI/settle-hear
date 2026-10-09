@@ -47,6 +47,15 @@ test('ABC: key signatures, octaves, lengths, broken rhythm, triplets, repeats wi
   assert.equal(keyAccidentals('F#m').G, 1);
   assert.equal(keyAccidentals('Edor').C, 1);
   assert.equal(keyAccidentals('Bb').E, -1);
+  // five, six and seven flats stay on the flat side (they once read as 7, 6 and 5 sharps)
+  assert.deepEqual(keyAccidentals('Bbm'), { C: 0, D: -1, E: -1, F: 0, G: -1, A: -1, B: -1 });
+  assert.deepEqual(keyAccidentals('Db'), keyAccidentals('Bbm'));
+  assert.equal(keyAccidentals('Ebm').C, -1);
+  assert.equal(keyAccidentals('Abm').F, -1);
+  assert.equal(keyAccidentals('Fphr').G, -1);
+  assert.equal(keyAccidentals('C#').B, 1);
+  assert.equal(keyAccidentals('B').A, 1);
+  assert.equal(keyAccidentals('F#').E, 1);
   const t = parseAbc('X:1\nT:test\nM:4/4\nL:1/8\nK:D\n|:A>B c2 d2 (3efg|1 a4 z4:|2 a8|]');
   assert.equal(t.title, 'test');
   assert.equal(t.key.pc, 2);
@@ -74,11 +83,12 @@ test('every tune in TUNES names a public-domain printed source and parses', () =
 });
 
 test('the tune rule refuses a tune with no book, a modern book, or no place in the book', () => {
-  const ok = { id: 'x', title: 'x', abc: 'K:D\nL:1/8\nABcd efga|', source: { book: 'b', compiler: 'c', year: 1816, where: 'p. 1' } };
+  const ok = { id: 'x', title: 'x', abc: 'K:D\nL:1/8\nABcd efga|', source: { book: 'b', compiler: 'c', year: 1816, where: 'p. 1', scan: 'https://archive.org/details/x' } };
   assert.deepEqual(tuneProblems(ok), []);
   assert.ok(tuneProblems({ ...ok, source: { ...ok.source, book: '' } }).some((p) => /book/.test(p)));
   assert.ok(tuneProblems({ ...ok, source: { ...ok.source, year: 1950 } }).some((p) => /1950/.test(p)));
   assert.ok(tuneProblems({ ...ok, source: { ...ok.source, where: null } }).some((p) => /place/.test(p)));
+  assert.ok(tuneProblems({ ...ok, source: { ...ok.source, scan: '' } }).some((p) => /scan/.test(p)));
   assert.ok(tuneProblems({ ...ok, abc: 'K:D\nABC' }).some((p) => /notes/.test(p)));
   assert.equal(playableTunes([ok, { ...ok, source: {} }]).length, 1);
   const cc0 = { ...ok, source: { kind: 'cc0', dataset: 'GregoBase', record: 'chant 1', licence: 'CC0', book: 'the Vatican edition' } };

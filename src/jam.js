@@ -23,6 +23,7 @@
 // playOnEngine(call)          - the default voice: the page's engine, its own mixer channel, the master clock; the
 //                               tonal hits go through THE JAM'S VOICE CHAINS
 // jamVoices()                 - the default voice's chains (null before the first hit)
+//                               (lane SOUNDSHAKE) every played hit is announced through pulse.js soundHit
 //
 // ** Technical Review **
 // - THE KEY: THE DJ's public state (djlive.js) names the theme it plays; jamKey reads the theme's root and mode
@@ -39,7 +40,7 @@
 //   empties it; PLAY/STOP starts and stops it, and play resumes in phase, because the loop's origin is a master bar
 //   line and its length is whole bars. A hit is never played back on the turn it was made (ev.since), so nothing
 //   doubles. The length glyph on a loop that exists repeats it to grow and keeps its start to shrink.
-// - THE PUMP: every 50 ms while a loop runs (opts.auto) the jam schedules the loop's hits that fall in the next 200 ms
+// - THE PUMP: every 50 ms on THE SOUND CLOCK (soundclock.js, lane DJSILENCE) while a loop runs (opts.auto) the jam schedules the loop's hits that fall in the next 200 ms
 //   on the audio clock (toAudioTime). It keeps its window moving while sound cannot play, so unmuting never fires a
 //   burst of missed hits. MUTE ALL and PAUSE ALL (the default audible gate: sound.audible and not isAway) stop every
 //   voice call, hits included; the hero's pause calls pause(true), which stops the loop.
@@ -62,6 +63,8 @@ import { createBag } from './deck.js';
 import { TONE } from './tone.js';
 import { djLive } from './djlive.js';
 import { createVoiceDealer, createVoiceBuses, JAM_SLOTS, LEVEL_MATCH_DB, levelTrim } from './voice-fx.js';
+import { soundHit } from './pulse.js';
+import { soundEvery } from './soundclock.js';
 
 export const JAM_KIT = Object.freeze([
   { key: 'kick', digit: '1', letter: 'K', family: 'drum', sound: 'kick' },
@@ -260,9 +263,10 @@ export function createJam({ voice = playOnEngine, theme = currentTheme, now = ma
   };
   const running = () => ['armed', 'rec', 'play'].includes(looper.state.mode);
   const keepTimer = () => {
-    if (!auto || typeof setInterval === 'undefined') return;
-    if (running() && !timer) { timer = setInterval(() => api.pump(), 50); timer.unref?.(); }
-    if (!running() && timer) { clearInterval(timer); timer = null; }
+    if (!auto) return;
+    // THE SOUND CLOCK (lane DJSILENCE, soundclock.js): a worker's tick, never throttled with a hidden tab
+    if (running() && !timer) timer = soundEvery(50, () => api.pump());
+    if (!running() && timer) { timer.stop(); timer = null; }
   };
   const changed = () => { keepTimer(); emit({ type: 'state' }); };
 
@@ -316,7 +320,7 @@ export function createJam({ voice = playOnEngine, theme = currentTheme, now = ma
       return c;
     },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
-    dispose() { if (timer) clearInterval(timer); timer = null; subs.clear(); },
+    dispose() { if (timer) timer.stop(); timer = null; subs.clear(); },
   };
   return api;
 }
@@ -535,7 +539,11 @@ export function playOnEngine(call) {
   }
   holdSound(2.6);
   const t = Math.max(E.ctx.currentTime + 0.005, toAudioTime(E.ctx, call.at));
-  return playJamHit(E.ctx, channel.voices.input(call, t), call, t);
+  const ok = playJamHit(E.ctx, channel.voices.input(call, t), call, t);
+  // lane SOUNDSHAKE: the hit is announced with its key and how long until it sounds, so the hero can answer it in its
+  // picture (a pop on THE RADIAL PULSE BUS) at the moment it is heard
+  if (ok) soundHit({ key: call.key, family: KIT[call.key]?.family ?? null, looped: !!call.looped, vel: call.vel ?? 0.9, delayMs: Math.max(0, (t - E.ctx.currentTime) * 1000) });
+  return ok;
 }
 // the jam's voice chains as they stand (null before the first hit): for the parts popover and the tests
 export const jamVoices = () => channel?.voices ?? null;

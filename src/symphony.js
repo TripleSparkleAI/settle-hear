@@ -13,11 +13,13 @@
 //                              opts.steer (default djSteer, steer.js): the visitor's steering store, read once a bar
 //                              every emit also writes djLive (djlive.js), the read-only public copy
 //   opts: seed (the clock by default: a new set each visit), theme (or a random pick), level (0.55),
-//         playing (true), tracks ({ name: bool }), tunes (TUNES), auto (true: run its own 60 ms timer),
+//         playing (true), tracks ({ name: bool }), tunes (TUNES), auto (true: tick every 60 ms on THE SOUND CLOCK),
 //         house (false: THE HOUSE DJ; setHouse(on) switches it), pure (false: THE McKUSKER FLUTE; setPure(on)),
 //         influenceStorage (a localStorage-like store for the influence window), votes (djVotes)
-//   more api: setMixLean(key, v), setPure(v), tag, playTag(tag) (lane SETTLEDJ)
+//   more api: setMixLean(key, v), setPure(v), tag, playTag(tag) (lane SETTLEDJ); setFxSteer(fx), fx (lane DJFX);
+//   nextSet() (lane DJSKIP: a new set on this bar, reached through dj-skip.js's door on the next bar line)
 //   opts.opener (false): THE OPENING BLEND (lane OPENINGSET, opener.js) plays the visit's first set; yieldOpener(why)
+//   opts.melodyMute (melody.js melodyMute): 432 Hz McKUSKER MODE's mute store; setMelodyMute(v), state.melody
 //
 // ** Technical Review **
 // - THE CLOCK: one bar at a time. When a bar is due (its start is within 0.15 s), the player asks the DJ for a
@@ -42,7 +44,11 @@
 // - A FILM in the hero: every new film frame strikes a soft bell on a partial of the root (it keeps time).
 // - MUTE ALL, PAUSE ALL and the first gesture are the engine's (engine.js): the player schedules nothing while sound
 //   is not audible, and its two channels go through the master, the mute and the limiter like every sound here. A
-//   hidden tab plays on (lane SOUNDDOCTOR's background rule) with a 1.6 s look-ahead, past a throttled timer.
+//   hidden tab plays on (lane SOUNDDOCTOR's background rule). THE SOUND CLOCK (lane DJSILENCE, soundclock.js): the
+//   player ticks on a worker's timer, which the browser does not throttle with a hidden tab, so a hidden tab decides
+//   its bars, its sets, its pieces and its moods on the same lines as a visible one (measured in Chrome: on the page
+//   timer, a tab hidden a minute decided one bar a minute). Where no Worker exists the page timer runs and a hidden tab
+//   keeps the 1.6 s look-ahead.
 // - THE HOUSE SET (lane HOUSEDJ, houseset.js + house.js): with house on, each bar goes to the house set instead of
 //   the instruments: a soft thump and pad, the tune about 14 dB under them, through a chain of a few of the 25
 //   passes, swapped by the DJ at bar lines; the tempo moves 118 to 126 bpm with the heat. The binaural pair keeps
@@ -59,6 +65,9 @@
 // - THE TAG (dj-tag.js): every bar the symphony packs the whole situation into one tag (state.tag); djVotes ratings
 //   of tags lean the planner and the mix machine (dj-votes.js); playTag(tag) loads a tag back into the live DJ.
 // - THE SET HOOKS: dj.cycleSet fires at a new house set or a theme change, and a window event 'settle-hear:set'.
+// - STAGE 3's PIECES (lane PIECESPLAY, opts.pieces, on by default): with the trained brain the symphony loads the
+//   pieces' cards (dj-pieces.js) and hands them to the house brain, which fetches a piece only when it deals one; a
+//   piece's first bar fires 'settle-hear:piece' with the deal's clock, and mixView().music.piece names it.
 // - THE OPENING BLEND (lane OPENINGSET, opts.opener): the first set of a visit is the opener (opener.js), never house:
 //   tones, isochronic pulses, a pad, no drums. Its clock (openerVisit.pos, opener seconds) moves only while the
 //   symphony is audible on the audio clock, so a pause, MUTE ALL or a hidden start holds it, and its first second is
@@ -77,12 +86,23 @@
 //   and two to four more); pure mode stays the clear flute alone, straight into the channel. state.voices names each
 //   part's chain (house mode: the brain's palette; pure mode: the clear flute alone), and the tag carries the
 //   palette (dj-tag.js).
+// - THE DJ'S DESK (lane DJFX, dj-fx.js): the wet channel, the house set and the opener play into the DJ's own effect
+//   bus (createChannel's out); the binaural pair does not. Each bar asks the desk's brain for the plan (a mood dealt
+//   per 4 phrases or per set, the settle's flavour per phrase, one overdone phrase in seven) and ramps the bus to it on
+//   the bar line; the opener and pure mode hold it dry. setFxSteer(fx) / the steer store's fx part override it per
+//   effect. state.fx and djLive carry the mood, the overdo and every value. Muted, nothing of the bus is built.
+// - 432 Hz McKUSKER MODE (lane McKUSKER, melody.js): state.melody = { voice, present, muted } says whether the flute
+//   is playing the melody now (pure mode, the tune mode when the dealt lead is a flute, the house set's LEAD layer when
+//   its lead is a flute; never while the opening blend holds the set, paused or muted). The mute store closes that
+//   voice alone at once: the lead bus's gate (symphony and house set) and the pure flute's gate; the DJ decides as
+//   before, so the plan, the tag and the steering are untouched and the tag can bring it back. MUTE ALL still wins.
 // - Determinism: everything random comes from one seeded stream per symphony (the DJ's) plus one for the notes,
 //   seeded from the same seed, so a test can drive tick() by hand and get the same decisions every run.
 // </claudes_code_comments>
 
 import { armUnlock, onEngine, getEngine, createChannel, ramp, wantSound, isAway } from './engine.js';
 import { registerPulseTarget } from './pulse.js';
+import { duckGain } from './duck.js';
 import { sound } from './control.js';
 import { createDJ, rng, pickTheme } from './dj.js';
 import { midiHz, noteMidi, BEAT_HOME, MODES } from './tuning.js';
@@ -97,8 +117,11 @@ import { soundLog, soundLogOn } from './soundlog.js'; // SOUNDLOG
 import { djSteer, applySteer, isIdleSteer, STEER_IDLE, STEER_TRACKS, STEER_MIX } from './steer.js';
 import { createHouseDJ } from './mix-dj.js';
 import { createMixSet } from './mix-layers.js';
+import { loadTrainedModels } from './dj-trained.js'; // THE TRAINED DJ (lane DJWIRE)
+import { loadPieceIndex, loadPiece } from './dj-pieces.js'; // STAGE 3's PIECES, one module a piece (lane PIECESPLAY)
 import { encodeTag, decodeTag, situationOf } from './dj-tag.js';
 import { playTag as rebuildTag, djTagRequests } from './dj-replay.js';
+import { djSkipRequests } from './dj-skip.js'; // NEXT AND PREVIOUS FOR THE DJ'S SETS (lane DJSKIP)
 import { djVotes, votesFromTags, VOTE_LEAN } from './dj-votes.js';
 import { describeInfluence } from './dj-influence.js';
 import { OPENER, OPENER_RATES, GAMMA_RATE, settleOpener, openerPlan, openerSlotAt, openerVoices, openerVisit, readOpenerMemory, writeOpenerMemory } from './opener.js';
@@ -107,15 +130,23 @@ import { rackOf } from './mix-rack.js';
 import { MIX_CHOICES } from './mix-machine.js';
 import { sectionOf } from './mix-planner.js';
 import { createVoiceDealer, createVoiceBuses, SYMPHONY_SLOTS, SYMPHONY_INSTRUMENTS, chainLine, specOf } from './voice-fx.js';
+import { createDjFx, createFxBus, TAU as FX_TAU, MOOD_KEYS } from './dj-fx.js';
+import { colourBuses, colourWords, colourNow, loadColour } from './dj-colour.js'; // THE DJ's OVERDRIVE AND VOCODER (lane DJOVERDRIVE)
+import { soundEvery, soundClockSteady } from './soundclock.js';
+import { soundParams } from './map.js';
+import { melodyMute as melodyMuteStore, melodyOf, MELODY_FADE } from './melody.js';
 
 export const TRACKS = STEER_TRACKS.slice();
 export const MINOR_MODES = new Set(['aeolian', 'dorian', 'phrygian', 'locrian', 'minor pentatonic']);
 
 const LOOKAHEAD = 0.15;
 // THE BACKGROUND RULE (lane SOUNDDOCTOR): a hidden tab's timers may fire only once a second, so the player schedules
-// a bar this far ahead while hidden; the bar is decided early and plays on the audio clock all the same
+// a bar this far ahead while hidden; the bar is decided early and plays on the audio clock all the same.
+// THE SOUND CLOCK (lane DJSILENCE, soundclock.js): the player ticks on a worker the browser does not throttle, so a
+// hidden tab decides its bars exactly as a visible one does; the long hidden look-ahead is kept only for the page-timer
+// fallback (no Worker), where a hidden tab may still be clamped
 export const LOOKAHEAD_HIDDEN = 1.6;
-const lookahead = () => (typeof document !== 'undefined' && document.hidden ? LOOKAHEAD_HIDDEN : LOOKAHEAD);
+const lookahead = () => (typeof document !== 'undefined' && document.hidden && !soundClockSteady() ? LOOKAHEAD_HIDDEN : LOOKAHEAD);
 
 export function rootMidiOf(theme) {
   const m = noteMidi(themeOf(theme?.key ?? theme).root);
@@ -136,7 +167,10 @@ function dryChannel(E, level) {
   // THE RADIAL PULSE (pulse.js): a dry channel takes the swell alone
   const swell = ctx.createGain();
   swell.gain.value = 1;
-  fader.connect(swell);
+  // THE MIX'S DUCK (lane DJSILENCE, duck.js): a drop dips this channel's level under the drop, never a tone's pitch
+  const dk = duckGain(ctx, 'binaural');
+  fader.connect(dk.node);
+  dk.node.connect(swell);
   swell.connect(E.master);
   const unpulse = registerPulseTarget({ anchor: null, ctx, gain: swell.gain });
   let lvl = level;
@@ -153,7 +187,8 @@ function dryChannel(E, level) {
       ramp(fader.gain, 0, ctx.currentTime, 0.05);
       wantSound(token, false);
       unpulse();
-      const id = setTimeout(() => { for (const n of [fader, swell]) try { n.disconnect(); } catch { /* gone */ } }, 300);
+      dk.off();
+      const id = setTimeout(() => { for (const n of [fader, dk.node, swell]) try { n.disconnect(); } catch { /* gone */ } }, 300);
       id?.unref?.();
     },
   };
@@ -161,7 +196,7 @@ function dryChannel(E, level) {
 
 const wall = () => (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
 
-export function createSymphony({ seed, theme = null, level = 0.55, playing = true, tracks = {}, tunes = TUNES, auto = true, house = false, pure = false, steer = djSteer, influenceStorage = null, votes = djVotes, bases = null, opener = false } = {}) {
+export function createSymphony({ seed, theme = null, level = 0.55, playing = true, tracks = {}, tunes = TUNES, auto = true, house = false, pure = false, steer = djSteer, influenceStorage = null, votes = djVotes, bases = null, opener = false, melodyMute = melodyMuteStore, djBrain = null, pieces = true } = {}) {
   const s0 = Number.isFinite(seed) ? seed : (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
   const dj = createDJ({ seed: s0, theme });
   const r = rng(s0 ^ 0x5bd1e995);
@@ -194,9 +229,33 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
   // THE McKUSKER FLUTE (pure): a collected tune as written, on the flute alone, a light room, nothing else
   let pureOn = !!pure && !house;
   let pureBpm = null;
+  // 432 Hz McKUSKER MODE (lane McKUSKER, melody.js): the flute's mute, read from the store at birth so it holds for the
+  // visit; pureGate is the pure flute's own gate (the symphony and the house set gate the lead bus instead)
+  let melodyMuted = !!melodyMute?.get?.();
+  let pureGate = null;
+  let pureColour = null; // THE DJ's colour on the McKusker flute (lane DJOVERDRIVE): built the first time it is dealt
+  let houseColour = null; // the house set's voice buses, wrapped (dj-colour.js colourBuses)
   // THE HOUSE DJ'S BRAIN (mix-dj.js): planner, mix machine, composer, rack amounts, influence window; pure data
   const houseDJ = createHouseDJ({ seed: s0, theme: dj.theme.key, tunes, storage: influenceStorage, bases }); // bases: THE BASES library (lane HOUSEBASES), optional
   let houseDecision = null;
+  // THE TRAINED DJ (lane DJWIRE): with a brain store (dj-brain.js), 'trained' loads THE DJ's trained models (a lazy
+  // import, its own chunk) and the house brain composes every new set from them; until they arrive, when they fail,
+  // or with 'old', the old DJ plays. Without the store the old DJ plays, as it always did.
+  let trainedState = djBrain ? 'loading' : 'off';
+  let piecesGiven = false;
+  function applyBrain(mode) {
+    houseDJ.setBrain(mode);
+    if (mode !== 'trained') return;
+    loadTrainedModels().then((m) => { if (dead) return; houseDJ.setTrained(m); trainedState = 'ready'; }).catch(() => { trainedState = 'failed'; });
+    // STAGE 3's PIECES (lane PIECESPLAY): the cards only (a few kB); a piece itself is fetched when the DJ deals it
+    if (pieces && !piecesGiven) {
+      piecesGiven = true;
+      loadPieceIndex().then((ix) => { if (!dead) houseDJ.setPieces(ix.pieces, { load: loadPiece }); }).catch(() => { piecesGiven = false; });
+    }
+  }
+  if (djBrain && typeof djBrain.get === 'function') applyBrain(djBrain.get());
+  else houseDJ.setBrain('old');
+  const offBrain = djBrain && typeof djBrain.subscribe === 'function' ? djBrain.subscribe(applyBrain) : () => {};
   let tag = null;
   // THE OPENING BLEND (lane OPENINGSET): wanted, the claimed opener (voices, channel), the house set's fade gain
   let opWant = !!opener && !pureOn && openerVisit.state !== 'done';
@@ -219,6 +278,14 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
   let symVoices = null;
   let symBus = null;
   const mixSteer = Object.fromEntries(STEER_MIX.map((k) => [k, 0]));
+  // THE DJ'S DESK (lane DJFX, dj-fx.js): the moods, the settle's flavour and the overdo, on the DJ's own effect bus;
+  // the wet channel, the house set and the opener play through it, the binaural pair never does
+  const djFx = createDjFx({ seed: (s0 ^ 0x6a09e667) >>> 0 || 1 });
+  let fxBus = null;
+  let fxSteer = {};
+  let fxPlan = null;
+  let fxWasOver = false;
+  let setTurned = false;
   let voteLeans = null;
   const recomputeVotes = () => {
     const list = votes?.list?.() ?? [];
@@ -268,7 +335,104 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     parts: partsView(),
     opener: openerView(),
     voices: voicesView(),
+    fx: fxView(),
+    melody: melodyView(),
   });
+  // 432 Hz McKUSKER MODE (melody.js): is the flute playing the melody now, which flute, and is it muted
+  function melodyView() {
+    const lead = (P) => P?.voices?.find((v) => v.slot === 'lead')?.inst ?? null;
+    const m = melodyOf({
+      audible: audible(),
+      opener: !!openerHolds(),
+      pure: pureOn,
+      house: houseOn,
+      tuneRunning: !!tune && !tune.generated && pureRest === 0 && tune.pos < tune.notes.length,
+      mode: decision?.mode ?? null,
+      leadOn: !!houseDecision?.mix?.yes?.lead,
+      flute: on.flute,
+      voice: houseOn ? lead(houseDecision?.voices) : lead(symVoices),
+    });
+    return { ...m, muted: melodyMuted };
+  }
+  // the mute lands at once (a press is a press, not a bar line): the lead bus, the house set's lead bus, the pure gate
+  function applyMelodyMute(v) {
+    melodyMuted = !!v;
+    if (E) {
+      const t = E.ctx.currentTime;
+      symBus?.mute('lead', melodyMuted, t, MELODY_FADE);
+      houseSet?.muteSlot('lead', melodyMuted, t);
+      if (pureGate) { try { pureGate.gain.cancelScheduledValues(t); pureGate.gain.setValueAtTime(pureGate.gain.value, t); pureGate.gain.linearRampToValueAtTime(melodyMuted ? 0 : 1, t + MELODY_FADE); } catch { pureGate.gain.value = melodyMuted ? 0 : 1; } }
+    }
+    if (soundLogOn()) soundLog('sym:melody:mute', { muted: melodyMuted }); // SOUNDLOG
+    emit();
+  }
+  // THE DJ'S DESK as the line and djLive read it: plain data only
+  function fxView() {
+    const st = fxPlan ?? djFx.state;
+    const colour = colourView();
+    return { mood: st.mood, moodLabel: st.moodLabel, baseMood: st.baseMood ?? null, overdrive: !!st.overdrive, overdo: st.overdo, overdoLabel: st.overdoLabel, weather: st.weather, weatherLabel: st.weatherLabel, weatherHard: st.weatherHard, held: st.held, flavour: { ...st.flavour }, values: { ...st.values }, phrase: st.phrase, steered: Object.keys(fxSteer).length > 0, colour, colourLabel: colourWords(colour) || null };
+  }
+  // THE DJ's OVERDRIVE AND VOCODER (lane DJOVERDRIVE, dj-colour.js): the brain names a voice ('lead', 'other' or the
+  // McKusker 'flute'); here it becomes a part of the mode playing now. 'other' is one of the melodic parts this theme or
+  // this set actually has, by the deal's pick, else the lead. present: the part is sounding in this bar, so the line
+  // never names an overdrive or a vocoder nobody can hear
+  const OTHER_HOUSE = ['answer', 'arps'];
+  const OTHER_SYMPHONY = ['harp', 'bells', 'crystal', 'fiddle'];
+  function slotPlaying(slot) {
+    if (!audible() || openerHolds()) return false;
+    if (slot === 'flute') return pureOn && on.flute && !melodyMuted && !!tune && !tune.generated && pureRest === 0;
+    if (pureOn) return false;
+    if (houseOn) return !!houseDecision?.mix?.yes?.[slot] && !(slot === 'lead' && melodyMuted);
+    const mix = dj.theme?.instruments ?? {};
+    const mode = decision?.mode;
+    if (slot === 'lead') return mode === 'tune' && on.flute && !melodyMuted;
+    if (slot === 'fiddle') return mode === 'tune' && on.fiddle && !!mix.fiddle;
+    return (mode === 'tune' || mode === 'bed') && on[slot] && !!mix[slot];
+  }
+  function slotFor(voice, pick = 0) {
+    if (voice === 'flute') return pureOn ? 'flute' : null;
+    if (pureOn) return null;
+    const list = houseOn ? OTHER_HOUSE : OTHER_SYMPHONY.filter((k) => on[k] && dj.theme?.instruments?.[k]);
+    // the flute starts muted (melody.js): a lead the visitor cannot hear hands its colour to the melodic part that is
+    // carrying the tune instead, so the overdrive and the vocoder land on something that sounds
+    if (voice === 'lead' && !(melodyMuted && list.length)) return 'lead';
+    return list.length ? list[Math.abs(pick | 0) % list.length] : 'lead';
+  }
+  function resolveColour() {
+    const c = (fxPlan ?? djFx.state).colour ?? {};
+    const drive = c.drive ? { slot: slotFor(c.drive.voice, c.drive.pick), amount: c.drive.amount, gain: c.drive.gain } : null;
+    const vocoder = c.vocoder ? { slot: slotFor(c.vocoder.voice, c.vocoder.pick), amount: c.vocoder.amount, warble: !!c.vocoder.warble, rate: c.vocoder.rate, depth: c.vocoder.depth, rootHz: dj.theme ? carrierOf(dj.theme) : 220 } : null;
+    return { drive: drive?.slot ? drive : null, vocoder: vocoder?.slot ? vocoder : null };
+  }
+  function colourView() {
+    const R = resolveColour();
+    return {
+      // present also needs the audio half loaded (dj-colour.js colourNow): before it arrives no stage is built
+      drive: R.drive ? { slot: R.drive.slot, amount: R.drive.amount, present: !!colourNow() && slotPlaying(R.drive.slot) } : null,
+      vocoder: R.vocoder ? { slot: R.vocoder.slot, warble: R.vocoder.warble, present: !!colourNow() && slotPlaying(R.vocoder.slot) } : null,
+    };
+  }
+  // the plan reaches the parts on the bar line: the mode playing gets it, every other colour stage goes back to dry
+  function applyColour(t0) {
+    if (!E) return;
+    const R = resolveColour();
+    const live = pureOn ? null : houseOn ? houseColour : symBus;
+    // a part's stage is built the first bar it sounds (a switched-off track or an absent layer builds nothing), and
+    // once built it follows the plan bar after bar, so a rest between notes never pulls the colour off a tail
+    const built = live?.colourStages?.() ?? {};
+    const map = {};
+    const add = (slot, k, v) => { if (slot && slot !== 'flute' && (built[slot] || slotPlaying(slot))) map[slot] = { ...(map[slot] ?? {}), [k]: v }; };
+    add(R.drive?.slot, 'drive', R.drive);
+    add(R.vocoder?.slot, 'vocoder', R.vocoder);
+    const tau = 0.35;
+    const fluteDrive = pureOn && R.drive?.slot === 'flute';
+    if (fluteDrive && pureGate && !pureColour && slotPlaying('flute') && colourNow()) pureColour = colourNow().createColourStage(E.ctx, pureGate);
+    pureColour?.set(fluteDrive ? { drive: R.drive } : {}, t0, tau);
+    for (const b of [symBus, houseColour]) {
+      if (!b?.colour) continue;
+      try { b.colour(b === live ? map : {}, t0, tau); } catch { /* a colour that fails leaves the voice dry */ }
+    }
+  }
   // THE VOICE CHAINS as the panel reads them (lane MELODYFX): the palette playing now, one line a part
   function activePalette() {
     if (pureOn) return null;
@@ -351,6 +515,15 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
       hum: h.hum,
       influence: { count: h.influence.window.length, decay: h.influence.decay, words: describeInfluence(h.influence.window) },
       votes: voteLeans ? { n: voteLeans.n } : { n: 0 },
+      // THE TRAINED DJ (lane DJWIRE): which brain plays, and the trained set's family, block and feel
+      brain: h.brain ?? 'old',
+      brainWanted: houseDJ.brainWanted,
+      trainedState,
+      trained: h.trained ? { family: h.trained.family, seed: h.trained.seed, blocks: h.trained.blocks, block: h.trained.block, gate: h.trained.gate, layers: h.trained.layers, feel: h.trained.feel, events: h.trained.groove?.events ?? null, view: h.trained.view ?? null, groove: h.trained.groove ?? null, notes: h.trained.notes ?? null } : null,
+      // THE MUSIC OF THE BAR (lane DJVISUAL): the chord the house plays this bar, its root and mode, and the composed
+      // tune's notes (by reference) with its opening motif, for THE DJ VISUALISER's stage-3 panel
+      // (lane PIECESPLAY) and the piece playing, if one: its id, name, key and the chord of the bar by name
+      music: { root: h.root ?? null, mode: h.mode ?? null, chord: Array.isArray(h.chord) ? h.chord.slice() : null, tune: h.tune ? { label: h.tune.label ?? null, motif: h.tune.motif ?? [], notes: h.tune.notes ?? null, bar: h.tune.bar ?? null } : null, piece: h.piece ? { id: h.piece.id, name: h.piece.name, keyName: h.piece.keyName, minor: h.piece.minor, chord: h.piece.chordName } : null },
     };
   }
   // THE PARTS: what is used to make the music now, in plain words (the parts popover reads this)
@@ -398,13 +571,15 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
 
   function ensureHouse() {
     if (!E || !houseOn || houseSet) return;
-    houseCh = createChannel(E, { level: lvl, reverb: 0.06, delay: 0, filter: 20000, fadeIn: 1.5 });
+    loadColour().catch(() => { /* THE DJ's colour waits; the voices play dry */ });
+    houseCh = createChannel(E, { level: lvl, reverb: 0.06, delay: 0, filter: 20000, fadeIn: 1.5, out: fxBus?.input });
     houseCh.setPlaying(isPlaying);
     // THE HANDOVER's fade (lane OPENINGSET): silent while the opener holds the set, then raised under its tail
     houseFade = E.ctx.createGain();
     houseFade.gain.value = openerHolds() ? 0 : 1;
     houseFade.connect(houseCh.input);
-    houseSet = createMixSet(E.ctx, houseFade, { seed: (s0 ^ 0x2545f491) >>> 0 });
+    houseSet = createMixSet(E.ctx, houseFade, { seed: (s0 ^ 0x2545f491) >>> 0, wrapVoices: (b) => (houseColour = colourBuses(b, E.ctx)) });
+    if (melodyMuted) houseSet.muteSlot('lead', true, E.ctx.currentTime);
   }
   function dropHouse() {
     if (!houseSet) return;
@@ -414,6 +589,7 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     houseSet = null;
     houseCh = null;
     houseFade = null;
+    houseColour = null; // freed with the set's voice buses
     const fid = setTimeout(() => { try { fade?.disconnect(); } catch { /* gone */ } }, 700);
     fid?.unref?.();
     ch.setPlaying(false);
@@ -434,6 +610,7 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     bin.level(on.binaural ? 1 : 0, t0);
     const h = houseDecision;
     if (!h) return;
+    applyColour(t0);
     for (const nt of h.notes) if (nt.midi != null) recent.push({ midi: nt.midi, beats: nt.beats, bar: d.bar });
     while (recent.length > 24) recent.shift();
     houseSet.bar(t0, h, beatDur);
@@ -484,7 +661,9 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     }
     if (!harm) harm = makeHarmonics(ctx, wet.input);
     if (!bin) bin = makeBinaural(ctx, dry.input);
-    if (!symBus) symBus = createVoiceBuses(ctx, wet.input, SYMPHONY_SLOTS);
+    loadColour().catch(() => { /* THE DJ's colour waits; the voices play dry */ }); // the valve and the vocoder, on demand (lane DJOVERDRIVE)
+    if (!symBus) { symBus = colourBuses(createVoiceBuses(ctx, wet.input, SYMPHONY_SLOTS), ctx); if (melodyMuted) symBus.mute('lead', true, ctx.currentTime, 0); }
+    if (!pureGate) { pureGate = ctx.createGain(); pureGate.gain.value = melodyMuted ? 0 : 1; pureGate.connect(wet.input); }
   }
   // the symphony's palette for the theme (a theme change deals a new one) and the bus a part plays into
   function symVoicesFor(theme, t0, beatDur, d) {
@@ -497,6 +676,7 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     const theme = d.theme;
     const { ctx } = E;
     ensureVoices(theme);
+    applyColour(t0);
     if (pureOn) { schedulePureBar(t0, d, beatDur); return; }
     const mix = theme.instruments;
     const root = rootMidiOf(theme);
@@ -562,7 +742,7 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     if (!on.flute) return;
     for (const nt of takePure(d.theme.meter ?? 4)) {
       if (nt.midi == null) continue;
-      playNote(ctx, wet.input, 'flute', midiHz(nt.midi), t0 + nt.at * beatDur, nt.beats * beatDur * 0.95, 0.85);
+      playNote(ctx, pureColour?.input ?? pureGate ?? wet.input, 'flute', midiHz(nt.midi), t0 + nt.at * beatDur, nt.beats * beatDur * 0.95, 0.85);
       recent.push({ midi: nt.midi, beats: nt.beats, bar: d.bar });
       played.push({ inst: 'flute', midi: nt.midi, at: nt.at, beats: nt.beats, bar: d.bar });
     }
@@ -587,7 +767,7 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     if (op || !opWant || pureOn || !openerVisit.plan || !E) return op;
     if (openerVisit.state === 'fresh') writeOpenerMemory(influenceStorage, openerVisit.choices);
     openerVisit.state = 'playing';
-    const ch = createChannel(E, { level: lvl, reverb: 0.22, delay: 0, filter: 9000, fadeIn: 0.3 });
+    const ch = createChannel(E, { level: lvl, reverb: 0.22, delay: 0, filter: 9000, fadeIn: 0.3, out: fxBus?.input });
     ch.setPlaying(isPlaying);
     op = { plan: openerVisit.plan, choices: openerVisit.choices, ch, voices: openerVoices(E.ctx, ch.input, openerVisit.plan, { startAt: t0 }), t0, from: openerVisit.pos, handed: false };
     return op;
@@ -662,6 +842,8 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
   }
   // THE SET HOOKS (lane LOOPLAYERS): dj.onSetCycle listeners, and a page event with the same object
   function announceSet(reason, endedTag) {
+    setTurned = true; // THE DJ'S DESK: a new set is a phrase line, and the mood may move on it
+    announced = true;
     const ev = dj.cycleSet({ reason, tag: endedTag });
     try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('settle-hear:set', { detail: ev })); } catch { /* no window */ }
   }
@@ -669,13 +851,16 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
   function makeTag(d, bpmNow) {
     const st = steer?.get?.() ?? STEER_IDLE;
     const h = houseOn ? houseDecision : null;
-    const lead = h?.lead;
+    // a piece's own lead is named by the piece block below; the tune fields keep the DJ's composed tune (lane PIECESPLAY)
+    const lead = h?.lead?.kind === 'piece' ? { kind: h.tune?.kind ?? 'none', seed: h.tune?.seed ?? 0, input: h.tune?.input ?? [], bar: h.tune?.bar ?? 0, keyPc: h.lead.keyPc } : h?.lead;
     const tuneInfo = h
       ? { kind: lead?.kind ?? 'none', seed: lead?.seed ?? 0, sources: lead?.input ?? [], bar: lead?.bar ?? 0 }
       : tune && !tune.generated ? { kind: 'collected', seed: 0, sources: [tune.tune.id], bar: Math.floor(tuneBeatsDone() / (d.theme.meter ?? 4)) } : { kind: tune?.generated ? 'generated' : 'none', seed: 0, sources: [], bar: 0 };
     try {
       return encodeTag(situationOf({
-        theme: d.theme.key,
+        // the theme playing NOW: a new set moves the theme after dj.bar() made `d`, so d.theme is the set that ended
+        // (lane DJSKIPFIX: the new set's first-bar tag named the old theme, and a history read it as two sets)
+        theme: dj.theme.key,
         pure: pureOn,
         section: h?.section ?? (d.mode === 'drone' ? 'hum' : 'intro'),
         setBar: h?.plan.setBar ?? 0,
@@ -696,6 +881,9 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
         steer: { leans: st.leans, mix: st.mix, wantBeat: st.wantBeat, wantTheme: st.wantTheme, holdBeat: st.holdBeat, lockTheme: st.lockTheme, tracks: st.tracks },
         influence: h ? { decay: h.influence.decay, window: h.influence.window } : { decay: 0.6, window: [] },
         voices: specOf(activePalette()),
+        // a piece (stage 3's seam) cannot be settled again from a seed, so its tag names the piece and its shift
+        // (lane HEROPASS): a replay plays the same piece again
+        trained: h?.trained ? { family: h.trained.family, seed: h.trained.seed, blocks: h.trained.blocks, piece: h.trained.piece ? { id: h.trained.piece.id, shift: h.trained.piece.shift ?? 0 } : null } : null,
       }));
     } catch { return null; }
   }
@@ -708,9 +896,25 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
 
   // THE LIVE DOOR: a tag asked for through settle-hear's playTag lands on the next bar line
   let tagPending = null;
-  const offTagReq = djTagRequests.subscribe((t) => { tagPending = t; });
+  // THE SKIP DOOR (lane DJSKIP, dj-skip.js): next and previous for THE DJ's sets land here too. The last request before
+  // the bar line wins, whichever door it came through
+  let navPending = null;
+  let announced = false;
+  const offTagReq = djTagRequests.subscribe((t) => { tagPending = t; navPending = null; });
+  const offSkipReq = djSkipRequests.subscribe((q) => { navPending = q; tagPending = null; });
   function runBar(t0) {
+    announced = false;
+    const barStartTag = tag;
     if (tagPending) { const t = tagPending; tagPending = null; try { api.playTag(t); } catch { /* a bad tag is ignored */ } }
+    // a skip: NEXT ends the set here and starts a new one as a natural change does; PREV plays an earlier set again.
+    // Neither touches djVotes: a skip is never a vote
+    let navTaken = null;
+    if (navPending) {
+      const q = navPending;
+      navPending = null;
+      if (q.type === 'replay') { try { api.playTag(q.tag); navTaken = 'a replayed set'; } catch { /* a bad tag is ignored */ } }
+      else if (q.type === 'next') { api.nextSet(); navTaken = 'a skip'; }
+    }
     takeSteer();
     // THE OPENING BLEND holds the set: no house bar, the theme held, until its arc ends
     const holding = openerHolds();
@@ -725,13 +929,31 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
       const holds = { lead: on.flute ? null : false, drone: on.drone ? null : false };
       const prevTag = tag;
       houseDecision = houseDJ.bar({ theme: dj.theme.key, mood, steer: { leans: dj.steers, mix: { ...mixSteer } }, holds, votes: voteLeans, bpm: bpm ?? null });
+      // A PIECE'S FIRST BAR (lane PIECESPLAY): a page event with the deal's clock (dealt, loaded, bars waited, prefetched),
+      // when this bar was scheduled and how far ahead of the audio clock it sounds; the measurement reads it
+      if (houseDecision.piece?.start) {
+        try {
+          if (typeof window !== 'undefined') {
+            const P0 = houseDecision.piece.start;
+            const startsIn = onAudioClock && E ? Math.max(0, t0 - E.ctx.currentTime) : null;
+            window.dispatchEvent(new CustomEvent('settle-hear:piece', { detail: { ...P0, keyName: houseDecision.piece.keyName, scheduledAt: typeof performance !== 'undefined' ? performance.now() : null, startsIn } }));
+          }
+        } catch { /* no window */ }
+      }
       if (houseDecision.newSet && houseDecision.plan.set > 0) {
-        // a NEW SET: the theme moves on (the visitor's wanted theme, else the deck) and the set hooks fire
+        // a NEW SET: the theme moves on (the visitor's wanted theme, else the deck) and the set hooks fire. pickTheme
+        // returns a theme object and setTheme takes a key: until lane DJSKIP passed .key, every new set fell back to
+        // themeOf's default, highlands
         const want = st.wantTheme && st.wantTheme !== dj.theme.key ? st.wantTheme : null;
-        if (!dj.themeLocked) { const next = want ?? pickTheme(r, dj.theme.key); dj.setTheme(next); houseDJ.setTheme(next); }
+        if (!dj.themeLocked) { const next = want ?? pickTheme(r, dj.theme.key).key; dj.setTheme(next); houseDJ.setTheme(next); }
         announceSet('a new set', prevTag);
       }
     } else if (d.themeChanged) announceSet('a new theme', tag);
+    // a skip that the natural paths did not announce (a replay mid-set, the opener yielded, the flute's next tune) is
+    // still a new set for the set hooks: the rate marks, the track tags and the playlist see it as one
+    // (lane PIECESPLAY) a NEXT whose dealt piece is still on its way is not a set yet: the set before plays on, and the
+    // piece's first bar announces itself as a new set
+    if (navTaken && !announced && !(houseOn && houseDecision?.pieceWait)) announceSet(navTaken, barStartTag);
     // THE BAR LINE as a page event (lane BINAURALMODES): the shuffle swaps modes only here when it can
     try { if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('settle-hear:bar', { detail: { bar: d.bar, mode: d.mode, beat: d.beat, at: t0 } })); } catch { /* no window */ }
     const heat = d.inputs.heat;
@@ -751,6 +973,15 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     const beatDur = q.beatDur;
     if (pureOn && pureBpm == null) pureBpm = bpm;
     tag = holding ? encodeOpenerTag(openerVisit.choices, openerVisit.pos) : makeTag(d, bpm);
+    // THE DJ'S DESK: the settle's numbers choose the flavour, the decks choose the mood and the overdo, on the bar
+    // line; the opening blend and the pure flute keep the bus dry
+    fxPlan = djFx.bar({ newSet: setTurned, inputs: flavourInputs(d.inputs), hold: holding || pureOn, pure: pureOn && !holding, steer: fxSteer });
+    setTurned = false;
+    if (fxBus && audible() && onAudioClock) {
+      const tau = fxPlan.overdo ? FX_TAU.into : fxWasOver ? FX_TAU.out : FX_TAU.mood;
+      try { fxBus.apply(fxPlan.values, t0, { tau, beatDur }); } catch { /* the bus stays where it was */ }
+    }
+    fxWasOver = !!fxPlan.overdo;
     if (audible() && onAudioClock) {
       try {
         if (holding) scheduleOpenerBar(t0, q.barSeconds);
@@ -786,6 +1017,14 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     return q.barSeconds;
   }
 
+  // the settle's live numbers for THE DJ'S DESK: heat, flips and overlap from the DJ's own reading, energy from the
+  // stats (1 - settledness, map.js); a field with no energy reading falls back to its heat
+  function flavourInputs(inp) {
+    const p = stats ? soundParams(stats) : null;
+    const energy = stats && Number.isFinite(Number(stats.ePer)) ? 1 - p.settled : inp.heat;
+    return { heat: inp.heat, flips: inp.flips, overlap: inp.overlap, energy };
+  }
+
   // the first master tick at or after t, on whichever clock is running (the audio clock, or wall seconds)
   const nextTick = (t) => (onAudioClock && E ? nextMasterBar(E.ctx, t) : nextLine(t * 1000) / 1000);
   // the first master BAR line (2 s) at or after t: a run of bars starts there, so 2 s bars sit on the master bar grid
@@ -815,7 +1054,8 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
   const offEngine = onEngine((eng) => {
     if (dead) return;
     E = eng;
-    wet = createChannel(E, { level: lvl, reverb: 0.4, delay: 0.15, filter: 9000, fadeIn: 2 });
+    fxBus = createFxBus(E);
+    wet = createChannel(E, { level: lvl, reverb: 0.4, delay: 0.15, filter: 9000, fadeIn: 2, out: fxBus.input });
     dry = dryChannel(E, lvl * 0.9);
     wet.setPlaying(isPlaying);
     dry.setPlaying(isPlaying);
@@ -823,15 +1063,13 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     emit();
   });
   const offSwitch = sound.subscribe(emit);
+  const offMelody = melodyMute && typeof melodyMute.subscribe === 'function' ? melodyMute.subscribe(applyMelodyMute) : () => {};
   const offSteer = steer && typeof steer.subscribe === 'function'
     ? steer.subscribe((next) => { steerPending = next; })
     : () => {};
   if (steer && typeof steer.get === 'function') { const now = steer.get(); if (now && now !== STEER_IDLE) steerPending = now; }
 
-  if (auto && typeof setInterval !== 'undefined') {
-    timer = setInterval(() => tick(), 60);
-    timer.unref?.();
-  }
+  if (auto) timer = soundEvery(60, () => tick());
 
   const api = {
     dj,
@@ -890,6 +1128,26 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     // THE OPENING BLEND (lane OPENINGSET): the page yields it when the visitor picks a sound; .opener is its view
     yieldOpener,
     get opener() { return openerView(); },
+    // THE DJ'S DESK steering (steer.js fx): { mood, reverb, delay, drive, tone }, null = the DJ decides; lands on the
+    // next bar line. A set value overrides the DJ for that effect, overdo included
+    setFxSteer(fx = {}) {
+      const next = {};
+      if (fx && MOOD_KEYS.includes(fx.mood)) next.mood = fx.mood;
+      for (const k of ['reverb', 'delay', 'drive', 'tone', 'overdrive', 'vocoder']) if (fx && fx[k] != null && Number.isFinite(Number(fx[k]))) next[k] = Math.min(1, Math.max(0, Number(fx[k])));
+      fxSteer = next;
+      emit();
+    },
+    get fx() { return fxView(); },
+    // NEXT SET (lane DJSKIP): end the set on this bar and start a new one as a natural change does. House mode: the
+    // brain restarts (the trained DJ settles a new set when on, the old planner opens one otherwise) and runBar moves
+    // the theme; the flute: its next tune; the classic DJ: the next theme. Called inside runBar by the skip door
+    nextSet() {
+      yieldOpener('a skip');
+      if (houseOn) houseDJ.nextSet();
+      else if (pureOn) { tune = null; pureBpm = null; }
+      else if (!dj.themeLocked) dj.setTheme(pickTheme(r, dj.theme.key).key);
+      emit();
+    },
     nextTune() { yieldOpener('a tune skip'); tune = null; if (!pureOn) newTune(); dj.markAdjusted(); emit(); },
     // the mix machine's leans from the visitor (steer.js mix): energy, drums, bass, pad, fx, each -1..1
     setMixLean(key, v) { if (STEER_MIX.includes(key)) { mixSteer[key] = Math.min(1, Math.max(-1, Number(v) || 0)); if (mixSteer[key]) { dj.markAdjusted(); yieldOpener('a mix lean'); } } },
@@ -897,6 +1155,9 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
     // THE McKUSKER FLUTE on or off (pure mode); house mode wins when both are asked for
     setPure(v) { const want = !!v && !houseOn; if (want === pureOn) return; if (want) yieldOpener('the McKusker flute'); pureOn = want; tune = null; pureBpm = null; emit(); },
     get pure() { return pureOn; },
+    // 432 Hz McKUSKER MODE's mute (melody.js): the flute alone, at once; the store carries it, so it holds for the visit
+    setMelodyMute(v) { if (melodyMute?.set) melodyMute.set(!!v); else applyMelodyMute(v); },
+    get melody() { return melodyView(); },
     get tag() { return tag; },
     // REPLAY: load a tag into the live DJ (house mode: the brain takes its tune, chain, layers and window; pure mode
     // the collected tune at its bar). Returns the rebuilt situation (dj-replay.js).
@@ -946,12 +1207,15 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
       if (soundLogOn()) soundLog('sym:dispose', { dead }); // SOUNDLOG
       if (dead) return;
       dead = true;
-      clearInterval(timer);
+      timer?.stop();
       offEngine();
       offSwitch();
+      offMelody();
+      offBrain();
       offSteer();
       offVotes();
       offTagReq();
+      offSkipReq();
       for (const v of [drone, harm, bin]) v?.dispose();
       symBus?.dispose();
       // the opener's voices go; the visit keeps its plan and position, so a remounted player resumes it
@@ -959,8 +1223,11 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
       dropHouse();
       houseLive.set({ house: false, audible: false, chain: '' });
       djLive.set(DJ_IDLE);
+      pureColour?.dispose();
+      try { pureGate?.disconnect(); } catch { /* gone */ }
       wet?.dispose();
       dry?.dispose();
+      if (fxBus) { const b = fxBus; fxBus = null; const id = setTimeout(() => b.dispose(), 700); id?.unref?.(); }
       subs.clear();
     },
   };

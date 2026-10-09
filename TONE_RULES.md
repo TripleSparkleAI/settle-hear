@@ -18,8 +18,9 @@ The navigator's standing word: nice, good tones, always. These rules are constan
 5. A little reverb on the musical voices (the symphony's wet channel, the house plate); none on a binaural pair or a
    mode pad, since the shared reverb is stereo and would mix each ear's tone into the other.
 6. Levels are balanced in the order static > binaural pair > pad > flute, by the written aims in `LEVELS` (dBFS at
-   the master's input): static -18, binaural -24, pad -27, flute -28, house -20, clicks -30, logo -22 (the site's logo click,
-   lane LOGOSETTLE: one short note under the static, its sources also sent into the hero bus). The master limiter
+   the master's input): static -18, binaural -24, pad -27, flute -28, house -20, clicks -30 (the 10 kHz click train),
+   jam -26 (the instruments a visitor hits and their loop, `jam.js`), logo -22 (the site's logo click, lane
+   LOGOSETTLE: one short note under the static, its sources also sent into the hero bus). The master limiter
    (engine.js, -14 dB threshold) and the house chain's own limiter (-16 dB) sit last; nothing a voice does can clip.
 7. A mode swap crossfades: 6 s when the shuffle moves on (`TONE.modeFade`), 0.8 s on a hand pick (`TONE.pickFade`).
 8. The 10 kHz click train keeps its stimulus shape (1 ms bursts, a 0.2 ms ramp, `TONE.clickRampMin`): it is a
@@ -27,7 +28,9 @@ The navigator's standing word: nice, good tones, always. These rules are constan
 
 ## Measured readings
 
-None yet. The aims in `LEVELS` are by ear and by arithmetic on the gains in each voice. A lane that reads the real
+None per channel yet. The aims in `LEVELS` are by ear and by arithmetic on the gains in each voice. (Two whole-mix
+readings exist elsewhere and do not test these aims: THE DJ's effect bus in the README's "THE DJ'S DESK", and the
+heartbeat against the clicks in "The heartbeat".) A lane that reads the real
 RMS per channel (the master analyser after the limiter, `masterAnalyser()`, in a Playwright run) writes the
 reading here beside its aim with the date and the build, and moves the constant only on that reading.
 

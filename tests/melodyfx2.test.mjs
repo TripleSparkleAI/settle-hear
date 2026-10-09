@@ -68,6 +68,10 @@ test('THE SYMPHONY plays its tune through the dealt lead: the clear flute meets 
     for (const k of ['fiddle', 'harp', 'bells', 'crystal', 'drone', 'harmonics', 'binaural']) s.setTrack(k, false);
     s.dj.lockTheme(true);
     s.dj.clamp('flute', true);
+    // THE DJ'S DESK (lane DJFX) has its own drive on the bus after the voices; hold it at zero so this counts the
+    // lead's own chain alone (a steered drive also takes the distortion overdo out of the deck)
+    // THE DJ's OVERDRIVE AND VOCODER (lane DJOVERDRIVE) colour a voice before its chain; steered off here likewise
+    s.setFxSteer({ drive: 0, overdrive: 0, vocoder: 0 });
     const m0 = all.length;
     for (let k = 0; k < 40; k++) { E.ctx.currentTime += 0.5; s.tick(); }
     const lead = s.state.voices.voices.find((v) => v.slot === 'lead');
@@ -84,6 +88,7 @@ test('THE SYMPHONY plays its tune through the dealt lead: the clear flute meets 
   assert.deepEqual([...seen].sort(), ['flute', 'flute-drive'], 'both flutes play the symphony\'s tune across seeds');
   // pure mode is the clear flute's own mode: it stays dry
   const p = createSymphony({ seed: 4, theme: 'highlands', auto: false, pure: true, steer: null, votes: null });
+  p.setFxSteer({ overdrive: 0 }); // THE DJ's overdrive on the McKusker flute (lane DJOVERDRIVE) held off
   const m1 = all.length;
   for (let k = 0; k < 30; k++) { E.ctx.currentTime += 0.5; p.tick(); }
   assert.equal(shapersSince(m1), 0);

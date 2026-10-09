@@ -14,7 +14,9 @@
 // createLayerStack({ grid })  - the stack, pure: rec, record, advance, due, play, stop, remove, setBars, cycleTimer,
 //                               djTick, release, playAll, stopAll, gainAt, timerLeft, cursor, playhead, layers
 // createLoopJam(opts)         - the instrument row's engine with the stack: hit, pump, rec, cycleTake, toggle(id),
-//                               close(id), stretch(id, n), timer(id), toggleAll, release, pause, cursor, subscribe
+//                               close(id), stretch(id, n), timer(id), toggleAll, release, pause, cursor, subscribe,
+//                               snapshot(), load(list)
+// layerEvent(e)               - one saved hit, checked and given back its sound and Hz (the kit's sound, midiHz), or null
 //
 // ** Technical Review **
 // - A LAYER is { id, state: armed | rec | play | stopped, origin (a master bar line), bars, src (the take's hits, in
@@ -32,6 +34,11 @@
 // - THE FADE: gain g0 at `from` falls in a straight line to 0 at `to`; at `to` the layer is gone. The visitor's timer
 //   (TIMER_BARS) starts from the gain the layer has now; cancelling it returns the layer to full. Touching a layer
 //   (play, stop, stretch) cancels a DJ fade, never the visitor's timer. A new set releases every layer over one bar.
+// - THE TRACK RECORD (lane TRACKTAGS): snapshot() gives every layer that holds hits as plain data ({ bars, srcBars,
+//   playing, src: [{ key, pos, vel, midi, notes }] }), small enough for a page to keep; load(list) lays such a list
+//   back as lines that start on the next bar line and play (at most LAYER_MAX in all). The hits are data, never
+//   audio: a loaded hit plays the same instrument at the same sixteenth, at the same pitch it was taken at (its midi
+//   is kept, so a loop saved in one key plays in that key under a DJ in another).
 // - Every hit a layer plays goes out as one voice call with vel x gain; hits under 2% gain are skipped. MUTE ALL and
 //   PAUSE ALL stop every call (the default audible gate); the window keeps moving while silent, so unmuting never
 //   fires a burst of missed hits (the same pump as jam.js).
@@ -42,7 +49,9 @@ import { isAway } from './engine.js';
 import { masterGrid, masterNow } from './masterbeat.js';
 import { createBag } from './deck.js';
 import { djLive } from './djlive.js';
-import { jamKey, jamCall, sixteenthMs, playOnEngine } from './jam.js';
+import { jamKey, jamCall, sixteenthMs, playOnEngine, JAM_KIT } from './jam.js';
+import { midiHz } from './tuning.js';
+import { soundEvery } from './soundclock.js';
 
 export const LAYER_BARS = Object.freeze({ min: 1, max: 16, take: 4 });
 export const TAKE_BARS = Object.freeze([1, 2, 4, 8]);
@@ -52,6 +61,19 @@ export const DJ_FADE = Object.freeze({ after: 24, over: 8, crowd: 4, crowdAfter:
 
 const mod = (a, n) => ((a % n) + n) % n;
 const clampBars = (n) => Math.min(LAYER_BARS.max, Math.max(LAYER_BARS.min, Math.round(Number.isFinite(Number(n)) ? Number(n) : LAYER_BARS.take)));
+
+// a saved hit back as a layer event: a known instrument, a position in sixteenths, a velocity and its pitch
+const KIT_SOUND = Object.fromEntries(JAM_KIT.map((k) => [k.key, k.sound]));
+const midiOk = (m) => Number.isFinite(m) && m >= 0 && m <= 127;
+export function layerEvent(e) {
+  if (!e || typeof e !== 'object' || !KIT_SOUND[e.key]) return null;
+  const pos = Number(e.pos);
+  const vel = Number(e.vel);
+  if (!Number.isFinite(pos) || pos < 0 || pos >= 16 * LAYER_BARS.max) return null;
+  const midi = midiOk(Number(e.midi)) ? Number(e.midi) : null;
+  const notes = Array.isArray(e.notes) && e.notes.length > 1 && e.notes.every((n) => midiOk(Number(n))) ? e.notes.map(Number).slice(0, 6) : undefined;
+  return { key: e.key, sound: KIT_SOUND[e.key], midi, hz: midi == null ? null : midiHz(midi), notes, vel: Number.isFinite(vel) ? Math.min(1, Math.max(0.05, vel)) : 0.9, pos, since: -Infinity };
+}
 
 export function tileEvents(src = [], srcBars = 1, bars = srcBars) {
   const L = 16 * srcBars;
@@ -234,6 +256,31 @@ export function createLayerStack({ grid = masterGrid } = {}) {
       }
       return n;
     },
+    // THE TRACK RECORD (lane TRACKTAGS): every layer with hits, as plain data
+    snapshot() {
+      return layers.filter((l) => l.src.length && l.state !== 'armed').map((l) => ({
+        bars: l.bars,
+        srcBars: l.srcBars,
+        playing: l.state === 'play' || l.state === 'rec',
+        src: l.src.map((e) => ({ key: e.key, pos: e.pos, vel: Math.round(e.vel * 100) / 100, midi: e.midi ?? null, ...(e.notes ? { notes: e.notes.slice() } : {}) })),
+      }));
+    },
+    // lay a saved list back: each one a playing line from the next bar line; returns the ids it made
+    load(list, ms) {
+      const made = [];
+      if (!Array.isArray(list)) return made;
+      const origin = lineAtOrAfter(ms);
+      for (const it of list) {
+        if (layers.length >= LAYER_MAX) break;
+        const srcBars = clampBars(it?.srcBars);
+        const src = (Array.isArray(it?.src) ? it.src : []).map(layerEvent).filter((e) => e && e.pos < 16 * srcBars).sort((a, b) => a.pos - b.pos);
+        if (!src.length) continue;
+        const l = { id: nextId++, state: 'play', origin, recEnd: origin, bars: clampBars(it.bars ?? srcBars), srcBars, src, fade: null, timer: null, touched: ms, playFrom: origin, auto: false };
+        layers.push(l);
+        made.push(l.id);
+      }
+      return made;
+    },
     playAll(ms) { for (const l of layers) if (l.state === 'stopped') api.play(l.id, ms); },
     stopAll(ms) { for (const l of layers.slice()) if (l.state === 'play' || l.state === 'armed' || l.state === 'rec') api.stop(l.id, ms); },
     gainAt(id, ms) { return gain(find(id), ms); },
@@ -281,9 +328,10 @@ export function createLoopJam({ voice = playOnEngine, theme = currentTheme, now 
   };
   const running = () => stack.layers.some((l) => l.state !== 'stopped' || l.fade);
   const keepTimer = () => {
-    if (!auto || typeof setInterval === 'undefined') return;
-    if (running() && !timer) { timer = setInterval(() => api.pump(), 50); timer.unref?.(); }
-    if (!running() && timer) { clearInterval(timer); timer = null; }
+    if (!auto) return;
+    // THE SOUND CLOCK (lane DJSILENCE, soundclock.js): a worker's tick, never throttled with a hidden tab
+    if (running() && !timer) timer = soundEvery(50, () => api.pump());
+    if (!running() && timer) { timer.stop(); timer = null; }
   };
   const changed = () => { keepTimer(); emit({ type: 'state' }); };
   const you = (why) => emit({ type: 'you', why });
@@ -341,6 +389,9 @@ export function createLoopJam({ voice = playOnEngine, theme = currentTheme, now 
     // a new set: every layer lets go over one bar (no 'you': the DJ did this)
     release(overMs) { const n = stack.release(now(), overMs); changed(); return n; },
     setQuantise(v) { quantise = !!v; changed(); return quantise; },
+    // THE TRACK RECORD (lane TRACKTAGS): the layers as plain data, and a saved list laid back (no 'you': a replay)
+    snapshot() { return stack.snapshot(); },
+    load(list) { const ms = now(); const ids = stack.load(list, ms); if (ids.length) { last = Math.max(last ?? ms, ms); changed(); } return ids; },
     pause(v) { if (v) { stack.stopAll(now()); changed(); } },
     gainAt(id, ms = now()) { return stack.gainAt(id, ms); },
     timerLeft(id, ms = now()) { return stack.timerLeft(id, ms); },
@@ -352,7 +403,7 @@ export function createLoopJam({ voice = playOnEngine, theme = currentTheme, now 
       return stack.cursor(ms);
     },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
-    dispose() { if (timer) clearInterval(timer); timer = null; subs.clear(); },
+    dispose() { if (timer) timer.stop(); timer = null; subs.clear(); },
   };
   return api;
 }

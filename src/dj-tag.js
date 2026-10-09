@@ -28,7 +28,11 @@
 //   leans 2 each, five mix leans 2 each, wanted beat 4, wanted theme 3, hold beat 1, lock theme 1, eight track
 //   holds 1 each) · influence (count 3, decay x20 5, then per set: key pc 4, mode 3, motif 4 x 4, theme 3,
 //   energy 4, vote 3) · THE VOICE CHAINS, last (lane MELODYFX: present 1, then seed 32, voices - 1 3, per voice
-//   slot 3, instrument 4, extra effects 3, then fx index 7 each; the settings are rebuilt from the seed).
+//   slot 3, instrument 4, extra effects 3, then fx index 7 each; the settings are rebuilt from the seed) · THE TRAINED
+//   SET, after it (lane DJWIRE: present 1, then family 3 (TRAINED_FAMILIES, append-only), seed 32, blocks 6; the
+//   whole set is settled again from them, dj-trained.js; a tag with a trained set but no voices writes the voice
+//   block's present bit as 0 first) · THE PIECE, last (lane HEROPASS: present 1, then the piece id's hash 16 and its
+//   shift + 6 in 4; a stage-3 piece is played again from the piece, never settled from the seed).
 // - The readable prefix says the theme, the mode and the version: "HIGH.house.v1." or "CATH.pure.v1.". The code
 //   after it is Crockford base32 (0-9 A-Z without I L O U), so a tag survives being read out and typed back.
 // - A source tune is named by a 16-bit hash of its id, so adding tunes to the list never breaks an old tag; the
@@ -42,6 +46,7 @@ import { MIX_KEYS } from './mix-machine.js';
 import { SECTION_KEYS } from './mix-planner.js';
 import { isOpenerTag, decodeOpenerTag, openerTagLines } from './opener-tag.js';
 import { VOICE_SLOTS, INST_ALPHABET, realizePalette, chainLine } from './voice-fx.js';
+import { FAMILIES as TRAINED_FAMILIES } from './dj-trained.js';
 
 export const TAG_VERSION = 1;
 
@@ -176,11 +181,28 @@ export function encodeTag(s) {
       w.put(keys.length, 3);
       for (const k of keys) w.put(TAG_FX_ALPHABET.indexOf(k), 7);
     }
+  } else if (s.trained) w.put(0, 1);
+  // THE TRAINED SET (lane DJWIRE), appended after the voice chains, so every older tag still reads (absent: no bits)
+  const TR = s.trained;
+  if (TR && TRAINED_FAMILIES.includes(TR.family)) {
+    w.put(1, 1);
+    w.put(TRAINED_FAMILIES.indexOf(TR.family), 3);
+    w.put((TR.seed ?? 0) >>> 0, 32);
+    w.put(Math.max(0, Math.min(63, TR.blocks ?? 0)), 6);
+    // THE PIECE (lane HEROPASS): a stage-3 piece cannot be settled again from a seed, so its set names the piece (a
+    // 16-bit hash of its id, as a tune is named) and the semitones it was moved by; appended last, so every older
+    // tag still reads (absent: no bits)
+    const PC = TR.piece;
+    if (PC && PC.id != null) {
+      w.put(1, 1);
+      w.put(tuneHash(PC.id), 16);
+      w.put(Math.max(0, Math.min(15, (Number(PC.shift) || 0) + 6)), 4);
+    }
   }
   return `${themeCode(theme)}.${s.pure ? 'pure' : 'house'}.v${TAG_VERSION}.${toB32(w.bits)}`;
 }
 
-export function decodeTag(tag, { tunes = [] } = {}) {
+export function decodeTag(tag, { tunes = [], pieces = [] } = {}) {
   // THE OPENING BLEND's tag (lane OPENINGSET, opener-tag.js): "<THEME>.open.v1.<code>", its own fields
   if (isOpenerTag(tag)) return decodeOpenerTag(tag);
   const m = /^([A-Z]{4})\.(pure|house)\.v(\d+)\.([0-9A-Z]+)$/i.exec(String(tag ?? '').trim());
@@ -260,6 +282,22 @@ export function decodeTag(tag, { tunes = [] } = {}) {
     }
     out.voices = { seed: seedV, voices };
   }
+  // THE TRAINED SET (lane DJWIRE): absent in a tag written before it, or by the old DJ
+  out.trained = null;
+  if (r.left >= 1 && r.get(1) === 1) {
+    const family = TRAINED_FAMILIES[r.get(3)] ?? null;
+    const seedT = r.get(32) >>> 0;
+    const blocks = r.get(6);
+    if (family && blocks) out.trained = { family, seed: seedT, blocks };
+    // THE PIECE (lane HEROPASS): the piece's id hash and its shift, resolved to the piece when the caller passes the
+    // pieces (decodeTag(tag, { pieces }))
+    if (r.left >= 21 && r.get(1) === 1) {
+      const hash = r.get(16);
+      const shift = r.get(4) - 6;
+      const found = pieces.find((p) => p && p.id != null && tuneHash(p.id) === hash) ?? null;
+      if (out.trained) out.trained.piece = { hash, shift, id: found?.id ?? null, name: found?.name ?? null };
+    }
+  }
   out.tag = String(tag).trim();
   return out;
 }
@@ -298,6 +336,9 @@ export function tagLines(d) {
     ['steering', steered.join(', ') || 'the DJ decides'],
     ['influence', d.influence.window.length ? `${d.influence.window.length} earlier sets, decay ${d.influence.decay}` : 'none'],
     ['voices', d.pure ? 'the clear flute, no effects' : d.voices ? realizePalette(d.voices).voices.map(chainLine).join('; ') : 'from the tune seed (a tag from before the voice chains)'],
+    ...(d.trained ? [['trained set', d.trained.piece
+      ? `${d.trained.family}, the piece ${d.trained.piece.name ?? d.trained.piece.id ?? `#${d.trained.piece.hash}`}${d.trained.piece.shift ? `, moved ${d.trained.piece.shift > 0 ? '+' : ''}${d.trained.piece.shift}` : ''}`
+      : `${d.trained.family}, ${d.trained.blocks} blocks of 8 bars, seed ${d.trained.seed}`]] : []),
   ];
 }
 
@@ -324,5 +365,6 @@ export function situationOf(st) {
     steer: st.steer ?? {},
     influence: st.influence ?? { decay: 0.6, window: [] },
     voices: st.voices ?? null,
+    trained: st.trained ?? null,
   };
 }

@@ -6,11 +6,13 @@
 // STEER_IDLE                 - the DJ alone: no leans, no held tracks, no wanted beat or theme, no holds
 // STEER_BEATS                - the popular beats a visitor may point the DJ at (Hz, from the binaural modes)
 // STEER_THEMES               - the theme keys a visitor may point the DJ at (THEME_KEYS)
+// STEER_FX                   - THE DJ'S DESK controls (lane DJFX): mood, reverb, delay, drive, tone; overdrive and
+//                              vocoder (lane DJOVERDRIVE)
 // djSteer                    - the store: get(), set(next), patch(part), reset(), subscribe(fn)
 // isIdleSteer(s)             - true when every control sits at "the DJ decides"
 // applySteer(api, next, prev) - call the symphony's hooks for what changed between prev and next: dj.steer per
 //                              choice, setMixLean per mix lean, dj.wantBeat, dj.wantTheme, holdBeat, lockTheme,
-//                              setTrack per track, nextTune
+//                              setTrack per track, setFxSteer (THE DJ'S DESK), nextTune
 //                              once per skip; returns the calls it made (name, args) so a fake api can be checked
 //
 // ** Technical Review **
@@ -40,11 +42,17 @@ export const STEER_BEATS = [...new Set(BINAURAL_MODES.map((m) => m.beat))].sort(
 export const STEER_THEMES = THEME_KEYS.slice();
 // THE MIX LEANS (lane SETTLEDJ): the house mix machine's own controls, -1 | 0 | 1 each (mix-machine.js MIX_STEER)
 export const STEER_MIX = Object.freeze(['energy', 'drums', 'bass', 'pad', 'fx']);
+// THE DJ'S DESK (lane DJFX, dj-fx.js): the visitor's hand on the DJ's effects. mood is a MOOD_KEYS key or null; reverb,
+// delay, drive and tone are 0..1 or null (null = the DJ decides). A set value overrides the DJ for that effect only.
+// Lane DJOVERDRIVE (dj-colour.js): overdrive (0..1: the bus's valve blend and every dealt voice overdrive; 0 never deals
+// OVERDRIVE or a voice overdrive) and vocoder (0..1: 0 never deals one, above 0 keeps one on, the lead's when none dealt)
+export const STEER_FX = Object.freeze(['mood', 'reverb', 'delay', 'drive', 'tone', 'overdrive', 'vocoder']);
 
 export const STEER_IDLE = Object.freeze({
   leans: Object.freeze(Object.fromEntries(KEYS.map((k) => [k, 0]))),
   mix: Object.freeze(Object.fromEntries(STEER_MIX.map((k) => [k, 0]))),
   tracks: Object.freeze(Object.fromEntries(TRACKS.map((t) => [t, null]))),
+  fx: Object.freeze(Object.fromEntries(STEER_FX.map((k) => [k, null]))),
   wantBeat: null,
   wantTheme: null,
   holdBeat: false,
@@ -55,6 +63,7 @@ export const STEER_IDLE = Object.freeze({
 export function isIdleSteer(s) {
   if (!s) return true;
   return KEYS.every((k) => !(s.leans?.[k])) && STEER_MIX.every((k) => !(s.mix?.[k])) && TRACKS.every((t) => s.tracks?.[t] == null)
+    && STEER_FX.every((k) => s.fx?.[k] == null)
     && s.wantBeat == null && s.wantTheme == null && !s.holdBeat && !s.lockTheme;
 }
 
@@ -69,6 +78,7 @@ function store(init) {
       if (part.leans) next.leans = { ...st.leans, ...part.leans };
       if (part.mix) next.mix = { ...st.mix, ...part.mix };
       if (part.tracks) next.tracks = { ...st.tracks, ...part.tracks };
+      if (part.fx) next.fx = { ...st.fx, ...part.fx };
       api.set(next);
     },
     reset() { api.set({ ...STEER_IDLE, skips: st.skips }); },
@@ -99,6 +109,11 @@ export function applySteer(api, next, prev = STEER_IDLE) {
   for (const t of TRACKS) {
     const v = next.tracks?.[t] ?? null;
     if (v !== (prev?.tracks?.[t] ?? null)) { api.setTrack?.(t, v !== false); call('setTrack', t, v !== false); }
+  }
+  if (STEER_FX.some((k) => (next.fx?.[k] ?? null) !== (prev?.fx?.[k] ?? null))) {
+    const fx = Object.fromEntries(STEER_FX.map((k) => [k, next.fx?.[k] ?? null]));
+    api.setFxSteer?.(fx);
+    call('fx', fx);
   }
   const skips = (next.skips ?? 0) - (prev?.skips ?? 0);
   for (let i = 0; i < skips; i++) { api.nextTune?.(); call('nextTune'); }

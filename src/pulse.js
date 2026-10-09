@@ -17,6 +17,21 @@
 // applyPulse(target, shape, at)      - the automation on one target: up over `attack`, back over the crossing
 // soundPulse(w, { anchors })         - the page's call: shape the wave once and apply it to every live target whose
 //                                      anchor is in `anchors`; returns how many answered (0 when not audible)
+// onPulseTargets(fn)                 - hear every target join (fn(t, 'add')) or leave (fn(t, 'remove')): the band tap
+//                                      (bands.js) listens to the hero's channels through this
+// WOBBLE                             - THE WOBBLE's numbers (lane SOUNDSHAKE): the life of a click's waves, the
+//                                      envelope, the saturation, the most a calm and an alive page may wobble
+// wobbleEnvelope(u)                  - pure: one wave's share of its energy at u (0 born .. 1 gone): (1 - u)^2, after a
+//                                      short rise; exactly 0 at and past 1
+// wobbleDepth(energy, cap)           - pure: cap * (1 - exp(-energy / WOBBLE.k)): many waves saturate, never pass cap
+// createWobble({ now })              - the live wave energy: .add({ strength, lifeMs, at }) for a user's click or box,
+//                                      .energy(t), .level(t, cap), .alive(t), .clear(); waves past their life drop out
+// registerWobbleTarget(bus) -> off   - a bus with .wobble(x, t) joins THE WOBBLE (dj-fx.js createFxBus registers)
+// soundWobble(x)                     - the page's call: every wobble target to x (0..1); 0 while not audible, so MUTE
+//                                      ALL and PAUSE ALL return the sound to normal at once; returns how many answered
+// wobbleLevel() / wobbleTargets()    - the last depth sent, and the live buses (a browser check reads their params)
+// soundHit(detail) / onSoundHit(fn)  - a played instrument hit (jam.js playOnEngine: a visitor's hit or a loop's) is
+//                                      announced with its key and its delay in ms; the page can answer it in a picture
 //
 // ** Technical Review **
 // - settle-hear never imports settle-see. THE RADIAL PULSE BUS (settle-see radialpulse.js) owns the geometry and the
@@ -35,10 +50,21 @@
 //   sit before the mute gain and the limiter, so a muted page stays silent whatever a wave does.
 // - The three nodes are built by createChannel (engine.js) between the fader and the master, so every mixer channel
 //   answers by default; a channel names its anchor ('hero', 'page', or none) and the page decides which anchors a
-//   consumer serves.
+//   consumer serves. Since lane SOUNDSHAKE a target also carries its channel's last node (`node`), so a listener
+//   (bands.js) can tap exactly the hero's channels.
+// - THE WOBBLE (lane SOUNDSHAKE, navigator 2026-10-04: "It goes both ways, but only on RADIAL EVENTS: user clicks and
+//   user rectangles! ... the sound goes wobbly for some time until all that dissipates"). THE OTHER DIRECTION of the
+//   answer above: while the waves a visitor started on the hero still live, THE DJ's bus wobbles. The page adds each
+//   wave (a click: WOBBLE.clickMs; a box: its own life) to createWobble; the energy is the sum of every live wave's
+//   strength times wobbleEnvelope of its age, so it rises at once and falls smoothly to exactly zero as the waves
+//   dissipate. wobbleDepth saturates it, so a storm of clicks stays musical (at most the mode's cap: WOBBLE.calm or
+//   WOBBLE.alive). soundWobble hands the depth to every registered bus, whose stage (dj-fx.js WOBBLE_STAGE) turns it
+//   into a vibrato and a tremolo. It never touches the binaural pair (not on the bus), never runs while MUTE ALL or
+//   PAUSE ALL hold (soundWobble writes 0), and the picture's own sound pops (the sound into the picture) never feed it.
 // </claudes_code_comments>
 
 import { sound } from './control.js';
+import { isAway } from './engine.js';
 
 export const SOUND_PULSE = Object.freeze({
   shelfHz: 2200, // the brightening's corner
@@ -82,12 +108,23 @@ export function pulseNodes(ctx, o = SOUND_PULSE) {
 }
 
 const targets = new Set();
+const watchers = new Set();
+const tellTargets = (t, what) => { for (const fn of watchers) { try { fn(t, what); } catch { /* a watcher that fails is left alone */ } } };
 
 export function registerPulseTarget(target) {
   if (!target || typeof target !== 'object') return () => {};
-  const t = { anchor: target.anchor ?? null, ctx: target.ctx, gain: target.gain ?? null, shelf: target.shelf ?? null, pan: target.pan ?? null };
+  const t = { anchor: target.anchor ?? null, ctx: target.ctx, gain: target.gain ?? null, shelf: target.shelf ?? null, pan: target.pan ?? null, node: target.node ?? null };
   targets.add(t);
-  return () => targets.delete(t);
+  tellTargets(t, 'add');
+  return () => { if (targets.delete(t)) tellTargets(t, 'remove'); };
+}
+
+// hear every target join and leave; fn is called at once for the targets already live
+export function onPulseTargets(fn) {
+  if (typeof fn !== 'function') return () => {};
+  watchers.add(fn);
+  for (const t of targets) { try { fn(t, 'add'); } catch { /* ignore */ } }
+  return () => watchers.delete(fn);
 }
 
 export function pulseTargets(anchor = null) {
@@ -127,4 +164,88 @@ export function soundPulse(w, { anchors = [null], at = null } = {}) {
     if (applyPulse(t, shape, at)) n++;
   }
   return n;
+}
+
+// ── THE WOBBLE (lane SOUNDSHAKE): the sound's answer to the waves a visitor starts on the hero ──
+
+export const WOBBLE = Object.freeze({
+  clickMs: 3200, // a click's waves on the hero: its rings and its page pulse, until they have faded
+  riseMs: 80, // a wave's energy rises over this, so a click never clicks the bus
+  k: 1.2, // the saturation: one full-strength click is 1 - e^(-1/1.2) = 57% of the cap
+  calm: 0.45, // the most a calm page wobbles (about 11 cents of vibrato, a tremolo dip of 0.1)
+  alive: 0.9, // the most an alive page wobbles (about 22 cents, a dip of 0.2)
+  maxWaves: 64, // the oldest wave is dropped past this
+});
+
+export function wobbleEnvelope(u, rise = WOBBLE.riseMs / WOBBLE.clickMs) {
+  if (!Number.isFinite(u) || u < 0 || u >= 1) return 0;
+  const up = rise > 0 ? Math.min(1, u / rise) : 1;
+  return up * (1 - u) * (1 - u);
+}
+
+export function wobbleDepth(energy, cap = WOBBLE.alive) {
+  const e = Number.isFinite(energy) && energy > 0 ? energy : 0;
+  const c = Number.isFinite(cap) ? Math.min(1, Math.max(0, cap)) : 0;
+  return c * (1 - Math.exp(-e / WOBBLE.k));
+}
+
+const wallNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+export function createWobble({ now = wallNow } = {}) {
+  let waves = [];
+  const prune = (t) => { if (waves.length) waves = waves.filter((w) => t - w.at < w.life); };
+  return {
+    add({ strength = 1, lifeMs = WOBBLE.clickMs, at } = {}) {
+      const s = Number.isFinite(strength) ? Math.min(1, Math.max(0, strength)) : 0;
+      const life = Number.isFinite(lifeMs) && lifeMs > 0 ? lifeMs : WOBBLE.clickMs;
+      if (s <= 0) return false;
+      waves.push({ s, life, at: Number.isFinite(at) ? at : now() });
+      if (waves.length > WOBBLE.maxWaves) waves.shift();
+      return true;
+    },
+    energy(t = now()) {
+      prune(t);
+      let e = 0;
+      for (const w of waves) e += w.s * wobbleEnvelope((t - w.at) / w.life, WOBBLE.riseMs / w.life);
+      return e;
+    },
+    level(t = now(), cap = WOBBLE.alive) { return wobbleDepth(this.energy(t), cap); },
+    alive(t = now()) { prune(t); return waves.length; },
+    clear() { waves = []; },
+  };
+}
+
+const wobblers = new Set();
+let wobbleNow = 0;
+
+export function registerWobbleTarget(bus) {
+  if (!bus || typeof bus.wobble !== 'function') return () => {};
+  wobblers.add(bus);
+  if (wobbleNow > 0 && sound.audible && !isAway()) { try { bus.wobble(wobbleNow); } catch { /* ignore */ } }
+  return () => wobblers.delete(bus);
+}
+
+export function soundWobble(x) {
+  const w = sound.audible && !isAway() && Number.isFinite(+x) ? Math.min(1, Math.max(0, +x)) : 0;
+  wobbleNow = w;
+  let n = 0;
+  for (const b of wobblers) { try { b.wobble(w); n++; } catch { /* a bus that refuses stays as it was */ } }
+  return n;
+}
+export const wobbleLevel = () => wobbleNow;
+// the live wobble targets (THE DJ's buses), for a check that reads what the bus was told and where its params stand
+export const wobbleTargets = () => [...wobblers];
+
+// ── a played hit, for a page that answers sound in a picture ──
+const hitSubs = new Set();
+export function soundHit(detail) {
+  if (!detail || typeof detail !== 'object') return 0;
+  let n = 0;
+  for (const fn of hitSubs) { try { fn(detail); n++; } catch { /* ignore */ } }
+  return n;
+}
+export function onSoundHit(fn) {
+  if (typeof fn !== 'function') return () => {};
+  hitSubs.add(fn);
+  return () => hitSubs.delete(fn);
 }

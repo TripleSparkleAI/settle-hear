@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ANIMESFX - offline render of a sound deck</title>
+<!--
+  ANIMESFX (lane HYPERRADIAL): render every entry of a sound deck in an OfflineAudioContext, straight into the
+  destination (no channel, no limiter), and hand the mono samples to tools/sfx_levels.py, which measures them.
+  Query: ?mod=<module path from tools/>&exp=<export name>&kind=deck|clicks&strength=<0..1>&seed=<n>
+  kind=deck   : entries { id, name, render(ctx, at, dest, opts) }
+  kind=clicks : the reference, clicks.js CLICK_NOISES { name, play(ctx, out, t, p) }
+-->
+<script type="module">
+const q = new URLSearchParams(location.search);
+const SR = 48000;
+const SECS = 2;
+const AT = 0.05;
+const strength = Number(q.get('strength') ?? 1);
+const seed = Number(q.get('seed') ?? 1);
+const kind = q.get('kind') ?? 'deck';
+const mod = await import(q.get('mod'));
+const list = mod[q.get('exp')];
+function b64(f32) {
+  const u8 = new Uint8Array(f32.buffer);
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+const rows = [];
+for (const e of list) {
+  const ctx = new OfflineAudioContext(2, SR * SECS, SR);
+  let end = null; let err = null;
+  try {
+    if (kind === 'clicks') end = e.play(ctx, ctx.destination, AT, { strength });
+    else end = e.render(ctx, AT, ctx.destination, { strength, seed });
+  } catch (x) { err = String(x && x.stack || x); }
+  const buf = await ctx.startRendering();
+  const L = buf.getChannelData(0); const R = buf.getChannelData(1);
+  const mono = new Float32Array(L.length); const side = new Float32Array(L.length);
+  for (let i = 0; i < L.length; i++) { mono[i] = 0.5 * (L[i] + R[i]); side[i] = 0.5 * (L[i] - R[i]); }
+  let peak = 0;
+  for (let i = 0; i < L.length; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
+  rows.push({ id: e.id ?? e.name, name: e.name, kind: e.kind ?? e.family, dur: e.dur ?? null, end, err, peak, mono: b64(mono), side: b64(side) });
+}
+window.__result = { sr: SR, at: AT, rows };
+</script>

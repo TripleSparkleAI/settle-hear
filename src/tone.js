@@ -42,7 +42,7 @@ export const LEVELS = {
   house: -20, // the house set as a whole, into its own limiter
   clicks: -30, // the 10 kHz click train: a demonstration, kept quiet
   jam: -26, // the instruments a visitor hits and the loop that repeats them (settle-hear jam.js): under the static
-  logo: -22, // the site's logo click (sites/settle-site/src/logoSounds.js): one short note, under the static
+  logo: -22, // the site's logo click (SETTLE/settle-site/src/logoSounds.js): one short note, under the static
 };
 
 export function dbToGain(db) {
