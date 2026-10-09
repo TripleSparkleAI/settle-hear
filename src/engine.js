@@ -15,6 +15,7 @@
 // onEngine(fn)                   - call fn(engine) now if the engine exists, else once it is built; returns an off()
 // setMaster(v) / getMaster()     - the master level, 0 .. 1 (a fader's value; the gain is its square)
 // levelGain(v)                    - the master gain for a level: v squared, the volume law (lane VOLUMECURVE)
+// MASTER_DEFAULT                  - the fresh master level, 1.0 (lane VOLUMEFULL; it was 0.8)
 // setReturn(name, v)             - the reverb or delay return level, 0 .. 1
 // isAway()                       - true while PAUSE ALL holds the page (settle-see's ticker state 'held')
 // pageHalted()                   - true while the pictures are halted for any reason (hidden tab, idle reader, held)
@@ -454,9 +455,15 @@ export function unlockNow() {
 // before the mute gain, so MUTE ALL still silences everything and the level survives it untouched.
 // THE SQUARED VOLUME (lane VOLUMECURVE, navigator 2026-10-06: "0..1"): the LEVEL is what a fader shows and what
 // setMaster, getMaster and onMaster carry; the master GAIN is the level squared, the standard volume law. So 1 is
-// loudness 1.0, the fresh 0.8 plays at 0.64, and 0.1 plays at 0.01 (40 dB down). Every fader of the one master sits
-// on the same curve because the square is taken here, once.
-let masterLevel = 0.8;
+// loudness 1.0, and 0.1 plays at 0.01 (40 dB down). Every fader of the one master sits on the same curve because the
+// square is taken here, once.
+// THE FULL VOLUME (lane VOLUMEFULL, navigator 2026-10-09: "the volume default is 0.80? Can we make it 1.0 default
+// for volume"): the fresh level is 1.0, so the master starts at gain 1.0 (it was 0.8, gain 0.64: 3.88 dB quieter). A
+// visitor's remembered level still wins (the site hands it to setMaster before the build). Measured through this
+// chain's limiter: THE DJ's mix peaks at -5.94 dB true peak at gain 1.0 (tools/djfx_levels.py --gain 1), and the
+// chain holds any input up to full scale under 0 dB true peak (tools/volumefull_levels.py).
+export const MASTER_DEFAULT = 1;
+let masterLevel = MASTER_DEFAULT;
 const masterSubs = new Set();
 export function levelGain(v) {
   const x = Math.min(1, Math.max(0, +v || 0));

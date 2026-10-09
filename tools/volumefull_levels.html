@@ -1,0 +1,68 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>THE FULL VOLUME - the master chain's ceiling, offline</title>
+<!--
+  THE FULL VOLUME (lane VOLUMEFULL, 2026-10-09): the fresh master level moved from 0.8 to 1.0, and the engine's
+  master gain is the level squared, so the fresh gain moved from 0.64 to 1.0 (+3.88 dB). This page renders, in a
+  real OfflineAudioContext, how loud the master chain lets anything get at each gain: the chain is copied from
+  engine.js build() (master -> limiter: a DynamicsCompressor at -14 dB, knee 4, ratio 20, attack 2 ms, release
+  0.2 s -> safety 0.9 -> the speakers; the mute gain is 1 while the sound plays). The inputs are deliberately
+  harsher than any voice THE DJ plays: a hard full-scale step from silence, the same at 2x full scale (voices
+  summing), a full-scale sine held, a 0.9 kick transient every half second, and white noise at full scale and at 2x. Each row
+  gives the sample peak and the 4x oversampled true peak at the speakers, from the first sample (no warmup is cut,
+  so a transient that slips the limiter's attack is counted). Driven by tools/volumefull_levels.py.
+-->
+<script type="module">
+import { truePeak } from './truepeak.js';
+
+const SR = 48000;
+const SECS = 3;
+const db = (x) => (x > 0 ? 20 * Math.log10(x) : -Infinity);
+
+function chain(ctx, gain) {
+  const master = ctx.createGain(); master.gain.value = gain;
+  const limit = ctx.createDynamicsCompressor();
+  limit.threshold.value = -14; limit.knee.value = 4; limit.ratio.value = 20; limit.attack.value = 0.002; limit.release.value = 0.2;
+  const safety = ctx.createGain(); safety.gain.value = 0.9;
+  master.connect(limit); limit.connect(safety); safety.connect(ctx.destination);
+  return master;
+}
+
+function bufferSource(ctx, out, fill, t0 = 0.5) {
+  const n = Math.round(SR * (SECS - t0));
+  const b = ctx.createBuffer(1, n, SR);
+  const d = b.getChannelData(0);
+  fill(d);
+  const s = ctx.createBufferSource(); s.buffer = b; s.connect(out); s.start(t0);
+}
+
+const INPUTS = [
+  ['a full-scale step from silence (square, 110 Hz)', 1, (d) => { for (let i = 0; i < d.length; i++) d[i] = (Math.floor(i / (SR / 220)) % 2) ? 1 : -1; }],
+  ['twice full scale, from silence (two voices summed)', 2, (d) => { for (let i = 0; i < d.length; i++) d[i] = 2 * ((Math.floor(i / (SR / 220)) % 2) ? 1 : -1); }],
+  ['a full-scale sine, 440 Hz, held', 1, (d) => { for (let i = 0; i < d.length; i++) d[i] = Math.sin((2 * Math.PI * 440 * i) / SR); }],
+  ['a 0.9 kick every half second', 1, (d) => { for (let i = 0; i < d.length; i++) { const k = i % (SR / 2); const t = k / SR; d[i] = 0.9 * Math.exp(-t * 18) * Math.sin(2 * Math.PI * (45 + 75 * Math.exp(-t * 30)) * t); } }],
+  ['white noise at full scale', 1, (d) => { let x = 0x9e3779b9; for (let i = 0; i < d.length; i++) { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; d[i] = ((x >>> 0) / 4294967296) * 2 - 1; } }],
+  ['white noise at twice full scale', 2, (d) => { let x = 0x9e3779b9; for (let i = 0; i < d.length; i++) { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; d[i] = 2 * (((x >>> 0) / 4294967296) * 2 - 1); } }],
+];
+
+async function render(gain, fill) {
+  const ctx = new OfflineAudioContext(1, SR * SECS, SR);
+  bufferSource(ctx, chain(ctx, gain), fill);
+  const buf = await ctx.startRendering();
+  const d = buf.getChannelData(0);
+  let peak = 0;
+  for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+  const tp = truePeak(buf, 0);
+  return { peak: +peak.toFixed(5), peakDb: +db(peak).toFixed(2), truePeak: +tp.toFixed(5), truePeakDb: +db(tp).toFixed(2) };
+}
+
+const gains = [0.64, 1];
+const rows = [];
+for (const [name, scale, fill] of INPUTS) {
+  const row = { name, scale };
+  for (const g of gains) row[g] = await render(g, fill);
+  rows.push(row);
+}
+window.__result = { gains, rows };
+document.body.textContent = JSON.stringify(window.__result, null, 1);
+</script>

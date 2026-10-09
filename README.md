@@ -98,8 +98,11 @@ A preset is `{ note, voices: { name: 0..1 }, fx: { reverb, delay, filter }, leve
 - Each hearing is a channel: its voices into a lowpass (`filter`), a fader (`level`), and two sends.
 - Shared effects: a convolution reverb (a generated 2.4 s impulse, decorrelated stereo noise under an exponential
   decay) and a feedback delay (320 ms, feedback 0.35, a 2.6 kHz lowpass in the loop).
-- The master chain: master gain (0.8 by default, clamped to 1), the mute gain, a DynamicsCompressor set as a limiter
-  (threshold -14 dB, ratio 20, attack 2 ms), and a safety gain of 0.9. Nothing can clip.
+- The master chain: master gain (the level squared; level 1.0 by default, `MASTER_DEFAULT`, lane VOLUMEFULL), the mute
+  gain, a DynamicsCompressor set as a limiter (threshold -14 dB, ratio 20, attack 2 ms), and a safety gain of 0.9. No
+  sample clips: the limiter holds the sample peak near -5 dBFS whatever the level (`tools/volumefull_levels.py`). At
+  the full level any input up to full scale stays under 0 dB true peak (worst -0.22 dB, full-scale white noise); only
+  white noise at twice full scale, which nothing here plays, overshoots between samples, by 0.27 dB.
 - Every channel fades in over about 1.5 s. THE BACKGROUND RULE (lane SOUNDDOCTOR): the sound plays on in a hidden
   tab and for an idle reader. Three things stop it, and each suspends the context so the tab is never a silent
   "playing audio" entry: MUTE ALL (fades out in about 0.15 s), PAUSE ALL, and nothing to hear (no channel playing,
@@ -128,7 +131,8 @@ a page can restore a remembered level on load (the site's hero volume, lane HERO
 mute gain: MUTE ALL silences everything and leaves the level as it was. `MasterFader` listens through `onMaster`, so two
 faders of one master agree.
 The level is what a fader shows; the master GAIN is the level squared (`levelGain(v)`, lane VOLUMECURVE), the standard
-volume law. A level of 1 is loudness 1.0, the default 0.8 plays at 0.64, and 0.1 plays at 0.01, 40 dB down. The square
+volume law. A level of 1 is loudness 1.0 and the default (`MASTER_DEFAULT`, 1.0 since lane VOLUMEFULL; it was 0.8,
+which played at 0.64), and 0.1 plays at 0.01, 40 dB down. The square
 is taken once, in the engine, so every fader of the one master is on the same curve. `MasterFader` shows the level to two
 places and speaks it as the number (`levelText`: "0.80 of 1"), never as a percent; pass `units.level` to translate it.
 A master level of 0 counts as MUTE ALL for THE BACKGROUND RULE (lane HEROPASS): the mute gain closes and the context
@@ -1164,7 +1168,10 @@ the distortion and the resonance." The hero symphony now plays through the DJ's 
   8 s, through a copy of the engine's master chain):** the old dry path peaks at -6.70 dB, RMS -22.54 dB. Every mood
   and every overdo measured sits at RMS -22.73 to -24.05 dB and peaks at -6.55 to -13.79 dB; the worst peak is 0.4703 of
   full scale. Nothing clips, and no mood or overdo is louder than the path it replaced. Record:
-  `SETTLE/runs/djfx/levels_2026-10-04.txt`.
+  `SETTLE/runs/djfx/levels_2026-10-04.txt`. Those numbers are at the chain copy's master gain of 0.8; `--gain` sets it
+  (lane VOLUMEFULL: the engine's fresh gain is 1.0, the level squared), and a true-peak column (4x oversampled,
+  `tools/truepeak.js`) rides beside the sample peak. At `--gain 1` the worst true peak is 0.5048 of full scale (-5.94 dB);
+  record `SETTLE/runs/volumefull/`.
 - **SMOOTH:** every change is a ramp on the bar line (0.6 s into a mood, 0.35 s into an overdo, 1.2 s out of one); a
   drive mode change crossfades shapers that are already running; the delay time glides over 0.8 s.
 - **THE STEERING (`steer.js` fx part):** `{ mood, reverb, delay, drive, tone }`, each null for "the DJ decides". A set

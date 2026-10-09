@@ -16,7 +16,7 @@
 // VOICES / VOICE_NOTES / makeVoice                             - voices.js: the seven voices
 // sound / createSwitch / readMuted / writeMuted / MUTE_KEY     - control.js: the page-wide mute (remembered)
 // armUnlock / unlockNow / requestStart / gestureWaiting / getEngine / onEngine / configure /
-//   setMaster / getMaster / onMaster / levelGain / setReturn / isAway               - engine.js: the one AudioContext, the mixer
+//   setMaster / getMaster / onMaster / levelGain / MASTER_DEFAULT / setReturn / isAway - engine.js: the one AudioContext, the mixer
 // CLICK_NOISES / playClickNoise / armClickNoises / onClickNoise / clickBag - clicks.js: 24 click noises, a seeded bag
 // DROP / DROP_PEAK_DB / DROP_CARDS / dropGainDb / playDropNoise / onDropSound - clicks.js: THE DROP, a dropped box sounds as one event; clickGainDb: a single click on the same level table
 // HEARTBEAT / playHeartbeat / heartbeatPlan / renderPlan - heartbeat.js: THE BADUMP's heartbeat (lane HEROKEYS)
@@ -54,7 +54,7 @@ export { SOUND_TICK_MS, configureSoundClock, soundEvery, soundAfter, soundClockK
 export { PRESETS, DEMOS, ALL, resolvePreset } from './presets.js';
 export { VOICES, VOICE_NOTES, makeVoice } from './voices.js';
 export { sound, createSwitch, readMuted, writeMuted, browserStorage, MUTE_KEY } from './control.js';
-export { armUnlock, unlockNow, requestStart, gestureWaiting, GESTURE_EVENTS, FOCUS_KEYS, BLOCK_DECIDE_MS, getEngine, onEngine, configure, setMaster, getMaster, onMaster, levelGain, setReturn, createChannel, isAway, pageHalted, wantSound, holdSound, soundWanted, masterAnalyser } from './engine.js';
+export { armUnlock, unlockNow, requestStart, gestureWaiting, GESTURE_EVENTS, FOCUS_KEYS, BLOCK_DECIDE_MS, getEngine, onEngine, configure, setMaster, getMaster, onMaster, levelGain, MASTER_DEFAULT, setReturn, createChannel, isAway, pageHalted, wantSound, holdSound, soundWanted, masterAnalyser } from './engine.js';
 export * from './map.js';
 export { CLICK_NOISES, CLICK_TONE, clickBag, playClickNoise, armClickNoises, onClickNoise, DROP, DROP_PEAK_DB, DROP_CARDS, dropGainDb, clickGainDb, playDropNoise, onDropSound } from './clicks.js';
 // THE BADUMP's sound (lane HEROKEYS): two soft thumps and a tone in THE DJ's key, on the next flash line

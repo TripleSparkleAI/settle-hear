@@ -1,6 +1,6 @@
 // THE SQUARED VOLUME (lane VOLUMECURVE, navigator 2026-10-06: "can it go to 1? and you decide the best simple thing
 // for 0.1 volume", then "0..1"): the master LEVEL is a fader's value, 0 to 1, and the engine sets the master GAIN to
-// the level squared, the standard volume law. 1 is loudness 1.0, the fresh 0.8 plays at 0.64, and 0.1 plays at 0.01
+// the level squared, the standard volume law. 1 is loudness 1.0 (the fresh level since lane VOLUMEFULL), 0.8 plays at 0.64, and 0.1 plays at 0.01
 // (40 dB down). Every fader of the one master (the hero's volume line, /hear's MasterFader) moves the level, so all of
 // them sit on the same curve. Before this lane the gain WAS the level (linear), and 0.1 on a fader was only 20 dB down.
 import test from 'node:test';
@@ -20,7 +20,7 @@ test('levelGain is the square of the level, clamped to 0..1, and the package exp
   assert.equal(typeof engine.levelGain, 'function', 'engine.levelGain exists');
   assert.equal(index.levelGain, engine.levelGain, 'the package index exports it');
   near(engine.levelGain(1), 1, '1 is loudness 1.0');
-  near(engine.levelGain(0.8), 0.64, 'the fresh level');
+  near(engine.levelGain(0.8), 0.64, 'the fresh level before lane VOLUMEFULL');
   near(engine.levelGain(0.5), 0.25, 'half');
   near(engine.levelGain(0.1), 0.01, '0.1 is 40 dB down');
   near(engine.levelGain(0), 0, 'silence');
@@ -31,10 +31,10 @@ test('levelGain is the square of the level, clamped to 0..1, and the package exp
 });
 
 test('the master starts at the squared default, and getMaster still answers the LEVEL', () => {
-  assert.equal(engine.getMaster(), 0.8, 'the level a fader shows');
+  assert.equal(engine.getMaster(), 1, 'the level a fader shows (1.0 since lane VOLUMEFULL)');
   sound.setMuted(false);
   const E = engine.unlockNow();
-  near(E.master.gain.value, 0.64, 'the gain the master node holds');
+  near(E.master.gain.value, 1, 'the gain the master node holds');
 });
 
 test('a set ramps the master GAIN to the level squared and onMaster carries the LEVEL', () => {

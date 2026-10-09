@@ -8,6 +8,7 @@
   release 0.2 s) -> safety 0.9 -> the speakers. "bus" levels are the desk's own output with no master chain at all.
 -->
 <script type="module">
+import { truePeak } from './truepeak.js';
 import { createFxBus, moodOf, settleFlavour, fxValues } from '../src/dj-fx.js';
 import { loadColour } from '../src/dj-colour.js';
 
@@ -15,6 +16,9 @@ import { loadColour } from '../src/dj-colour.js';
 await loadColour();
 
 const SR = 48000;
+// the master gain (lane VOLUMEFULL): ?gain= in the URL, 0.8 by default as before. The engine's gain is the level
+// squared (levelGain), so the fresh level 1.0 is gain 1.0 and the old fresh level 0.8 was gain 0.64.
+const MASTER_GAIN = Number(new URLSearchParams(location.search).get('gain') ?? 0.8);
 const SECS = 8;
 
 // a hero-like source: a pad chord, a flute-like lead (peak about 0.22, settle-hear's INST_PEAK) and a soft kick
@@ -35,7 +39,7 @@ function source(ctx, out) {
 }
 
 function masterChain(ctx) {
-  const master = ctx.createGain(); master.gain.value = 0.8;
+  const master = ctx.createGain(); master.gain.value = MASTER_GAIN;
   const limit = ctx.createDynamicsCompressor();
   limit.threshold.value = -14; limit.knee.value = 4; limit.ratio.value = 20; limit.attack.value = 0.002; limit.release.value = 0.2;
   const safety = ctx.createGain(); safety.gain.value = 0.9;
@@ -50,7 +54,8 @@ function levels(buf, from = 0) {
     const d = buf.getChannelData(c);
     for (let i = Math.floor(from * SR); i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; sum += d[i] * d[i]; n++; }
   }
-  return { peak: +peak.toFixed(4), peakDb: +db(peak).toFixed(2), rmsDb: +db(Math.sqrt(sum / n)).toFixed(2) };
+  const tp = truePeak(buf, from); // the 4x oversampled peak between samples (lane VOLUMEFULL)
+  return { peak: +peak.toFixed(4), peakDb: +db(peak).toFixed(2), rmsDb: +db(Math.sqrt(sum / n)).toFixed(2), truePeak: +tp.toFixed(4), truePeakDb: +db(tp).toFixed(2) };
 }
 
 async function render(values, { master = true } = {}) {
@@ -86,6 +91,6 @@ const cases = [
 ];
 const rows = [];
 for (const [name, v] of cases) rows.push({ name, master: await render(v), bus: await render(v, { master: false }) });
-window.__result = rows;
+window.__result = { gain: MASTER_GAIN, rows };
 document.body.textContent = JSON.stringify(rows, null, 1);
 </script>

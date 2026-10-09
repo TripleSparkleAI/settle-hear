@@ -4,6 +4,7 @@
 Usage:
   python3 tools/djoverdrive_levels.py         # two tables: the bus (CLEAN against OVERDRIVE) and each voice coloured
   python3 tools/djoverdrive_levels.py --json  # the raw rows
+  python3 tools/djoverdrive_levels.py --gain 1  # the master gain of the chain copy (0.8 by default, as before)
 
 It serves settle-hear on a free localhost port (the page imports ../src/dj-fx.js, dj-colour.js and instruments.js as
 ES modules), waits for the OfflineAudioContext renders in headless Chromium, prints, and stops its own server. Exits
@@ -26,6 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--json', action='store_true', help='print the raw rows')
+    ap.add_argument('--gain', type=float, default=0.8, help='the master gain of the chain copy (default 0.8)')
     args = ap.parse_args()
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *a):
@@ -38,7 +40,7 @@ def main():
         with sync_playwright() as p:
             b = p.chromium.launch(args=['--autoplay-policy=no-user-gesture-required'])
             page = b.new_page()
-            page.goto(f'http://127.0.0.1:{port}/tools/djoverdrive_levels.html')
+            page.goto(f'http://127.0.0.1:{port}/tools/djoverdrive_levels.html?gain={args.gain}')
             page.wait_for_function('window.__result', timeout=120000)
             rows = page.evaluate('window.__result')
             b.close()
@@ -46,18 +48,20 @@ def main():
     if args.json:
         print(json.dumps(rows, indent=1))
         return 0
-    print(f"{'bus case':38} {'master peak':>12} {'master RMS':>11} {'bus peak':>9} {'bus RMS':>8} valve")
+    print(f"master gain {rows['gain']}")
+    print(f"{'bus case':38} {'master peak':>12} {'true peak':>10} {'master RMS':>11} {'bus peak':>9} {'bus RMS':>8} valve")
     for r in rows['bus']:
         m, s_ = r['master'], r['bus']
-        print(f"{r['name']:38} {m['peakDb']:>9.2f} dB {m['rmsDb']:>8.2f} dB {s_['peakDb']:>6.2f} dB {s_['rmsDb']:>5.2f} dB {'yes' if s_['tube'] else 'no'}")
+        print(f"{r['name']:38} {m['peakDb']:>9.2f} dB {m['truePeakDb']:>7.2f} dB {m['rmsDb']:>8.2f} dB {s_['peakDb']:>6.2f} dB {s_['rmsDb']:>5.2f} dB {'yes' if s_['tube'] else 'no'}")
     worst = max(r['master']['peak'] for r in rows['bus'])
-    print(f"\nworst peak through the master chain: {worst} (full scale is 1.0) -> {'NO CLIP' if worst < 1 else 'CLIPS'}\n")
+    worst_tp = max(r['master']['truePeak'] for r in rows['bus'])
+    print(f"\nworst peak through the master chain: {worst}, true peak {worst_tp} (full scale is 1.0) -> {'NO CLIP' if worst_tp < 1 else 'CLIPS'}\n")
     print(f"{'voice':16} {'colour':34} {'RMS of dry':>10} {'peak of dry':>11}")
     for r in rows['voices']:
         print(f"{r['voice']:16} {r['plan']:34} {r['rmsShare']:>10.4f} {r['peakShare']:>11.4f}")
     wr = max(r['rmsShare'] for r in rows['voices'])
     wp = max(r['peakShare'] for r in rows['voices'])
-    ok = wr <= 1 and wp <= 1 and worst < 1
+    ok = wr <= 1 and wp <= 1 and worst_tp < 1
     print(f"\nloudest coloured voice: RMS {wr:.4f} and peak {wp:.4f} of dry -> {'NEVER LOUDER' if ok else 'LOUDER THAN DRY'}")
     print('NEXT -> npm test  (tests/djoverdrive.test.mjs pins the same law in the offline renderer)')
     return 0 if ok else 1
