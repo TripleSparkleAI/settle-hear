@@ -1,11 +1,10 @@
 <!-- settle-banner -->
 ```text
-··●··●● ●●● ●●● ●   ●●●     ● ● ●●●  ●  ●●
-·   ●  · ●   ●  ●   ●       ● ● ●   ● ● ● ●
-·●· ●●   ●   ●  ●   ●●  ●●● ●●● ●●  ●●● ●●
- ·●··    ●   ●  ●   ●       ● ● ●   ● ● ● ●
-●●  ·●●· ●   ●  ●●● ●●●     ● ● ●●● ● ● ● ●
-↑↓↓↑↓↑↑↑↑↑ ●●●●●●●●
+ ████  █████  █████  █████  █      █████        █   █  █████   ███   ████
+█      █        █      █    █      █            █   █  █      █   █  █   █
+ ███   ████     █      █    █      ████   ████  █████  ████   █████  ████
+    █  █        █      █    █      █            █   █  █      █   █  █  █
+████   █████    █      █    █████  █████        █   █  █████  █   █  █   █
 ✦ sound made from a settle's own numbers, beside settle-see
 ```
 
@@ -1078,7 +1077,7 @@ clear one can.
   | opener tones, pad, isochronic and 40 Hz pulses | held tones and pulses | dry | dry: no tune; an effect would smear a pulse's edges |
   | jam pluck, bell, chord, vox, settle (`jam.js`) | the jam's tonal hits | dry | one chain each ('free' profile), built on the first hit |
   | jam kick, clap, hats, bass | drums and the root | dry | dry: drums carry no tune, the bass carries the root |
-  | loop layers (`layers.js`), live radio's followed loops (site `liveradio/`) | the jam's hits | dry | through the jam's chains (`playOnEngine`) |
+  | loop layers (`layers.js`), the loops followed when listening together in the DJ system (site `liveradio/`) | the jam's hits | dry | through the jam's chains (`playOnEngine`) |
   | the bases page (site `pages/hearbases.jsx`, `playBaseBar`) | lead: the clear flute; chords | dry | lead dealt (clear flute, distorted flute or keys) + chords through the arps chain (`createBaseVoices`) |
   | the house set API (`houseset.js`, no page plays it) | the clear flute | dry | a dealt 'lead' bus |
   | the neutral hum's motif (`fx-hum.js`) | a slow sine under the pulse | dry | dry: the hum is the neutral warm-down, capped at 0.05, and its only movement is the rate pulse |
@@ -1117,7 +1116,7 @@ clear one can.
   the house DJ, the bases, the house set, the pool review, every pool effect dealt in every profile, the opener's
   gentle chains, the jam's one chain per instrument red-proven by re-dealing per hit, the engine path and the mute,
   the tag, the level match); the site's `tests/melodyfx2.test.mjs` (the bases block's wiring and a base heard through
-  its chains, the jam row, loop layers and live radio on `playOnEngine`).
+  its chains, the jam row, loop layers and listening together on `playOnEngine`).
 
 ## THE DJ'S DESK: moods, the settle's flavour, and the overdo (dj-fx.js)
 
