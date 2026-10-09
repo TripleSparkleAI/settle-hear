@@ -9,9 +9,9 @@ import * as hear from '../src/index.js';
 const here = new URL('../src/deck.js', import.meta.url);
 const there = new URL('../../settle-see/src/deck.js', import.meta.url);
 
-// settle-see sits beside settle-hear in the research repository, and beside a clone of github.com/triplesparkle/settle-hear
+// settle-see sits beside settle-hear in the research repository, and beside a clone of github.com/TripleSparkleAI/settle-hear
 // when settle-see is cloned next to it; a clone of settle-hear alone has no copy to compare, and says so
-const seeAbsent = existsSync(there) ? false : 'settle-see is not beside this folder (clone github.com/triplesparkle/settle-see next to it)';
+const seeAbsent = existsSync(there) ? false : 'settle-see is not beside this folder (clone github.com/TripleSparkleAI/settle-see next to it)';
 test('settle-hear/src/deck.js is byte-identical to settle-see/src/deck.js', { skip: seeAbsent }, () => {
   assert.equal(readFileSync(here, 'utf8'), readFileSync(there, 'utf8'));
 });

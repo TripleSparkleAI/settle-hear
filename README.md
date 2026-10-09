@@ -34,12 +34,12 @@ sound.stop(); sound.play(); sound.dispose();
 ## Get it
 
 ```sh
-git clone https://github.com/triplesparkle/settle-hear
+git clone https://github.com/TripleSparkleAI/settle-hear
 cd settle-hear
 npm test
 ```
 
-Or add it to an app from its public repository: `npm install github:triplesparkle/settle-hear`. It is under the MIT
+Or add it to an app from its public repository: `npm install github:TripleSparkleAI/settle-hear`. It is under the MIT
 licence (`LICENSE`). It has no dependencies; React is an optional peer.
 One test compares `src/deck.js` with settle-see's copy; it runs when a clone of settle-see sits beside this
 folder and is skipped otherwise. A path below that starts `runs/` or `wikis/` names a file in the research
