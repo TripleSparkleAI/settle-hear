@@ -58,7 +58,7 @@ test('the panel is capped to the room, its header stays put and its body scrolls
 test('the close glyph sits on the title row: small, round, no full-width bar, no native tooltip', () => {
   const head = jsx.slice(jsx.indexOf('className="dj-view__head"'), jsx.indexOf('className="dj-view__body"'));
   assert.match(head, /className="dj-view__title"/);
-  assert.match(head, /className="dj-x" aria-label="close"/);
+  assert.match(head, /className="dj-x" aria-label=\{w\('close'\)\}/);
   assert.doesNotMatch(head, /title="close"/, 'no native tooltip over the title');
   const x = rule('.dj-x');
   assert.match(x, /width: 28px/);

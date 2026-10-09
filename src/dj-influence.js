@@ -13,6 +13,7 @@
 // createInfluenceWindow(opts) - the window: push(rec) (newest first, oldest falls off), list, weights, blend(),
 //                               vote(stars) (marks the newest record), clear(); opts.storage (a localStorage-like
 //                               object) keeps it across visits under INFLUENCE.key
+// influenceSay(window)        - the same words as [english template, values] pairs, for a page in another language
 // describeInfluence(window)   - plain words for the parts popover ("carries the key of the last set (D) and its
 //                               opening motif")
 //
@@ -102,12 +103,19 @@ export function createInfluenceWindow({ size = INFLUENCE.size, decay = INFLUENCE
   };
 }
 
-export function describeInfluence(window = []) {
+// the same words as templates, [english, values] each (lane FINISHDJ): a page in another language fills them itself
+export function influenceSay(window = []) {
   const b = blendInfluence(window);
-  if (!b) return 'the first set: nothing carried yet';
+  if (!b) return [['the first set: nothing carried yet', null]];
   const newest = window[0];
-  const parts = [`carries the key of the last set (${NAMES[newest.keyPc]}${newest.mode === 'ionian' ? '' : ` ${newest.mode}`})`];
-  if (newest.motif.length) parts.push('its opening motif');
-  if (b.count > 1) parts.push(`leans on ${b.count} earlier sets, the nearer ones more`);
-  return parts.join(', ');
+  const parts = [['carries the key of the last set ({key})', { key: `${NAMES[newest.keyPc]}${newest.mode === 'ionian' ? '' : ` ${newest.mode}`}` }]];
+  if (newest.motif.length) parts.push(['its opening motif', null]);
+  if (b.count > 1) parts.push(['leans on {n} earlier sets, the nearer ones more', { n: b.count }]);
+  return parts;
+}
+
+const fillEn = (en, vars) => (vars ? String(en).replace(/\{(\w+)\}/g, (m, k) => (vars[k] == null ? m : String(vars[k]))) : String(en));
+
+export function describeInfluence(window = []) {
+  return influenceSay(window).map(([en, vars]) => fillEn(en, vars)).join(', ');
 }

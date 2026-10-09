@@ -25,6 +25,8 @@
 //   two decks of 50 (fetched on demand under vite since lane BUNDLESLIM)
 // SFX / playSfx / sfxPage / armSfx / onSfx / createClickCards - sfx.js: the decks played: page load and change, one
 //                                                              click lock in four, the machine's random waves
+// PAGE_CHIME / pageChimes / pageChimeChange / playPageChime / loadPageChimes / addChimeVeto - pagechime.js: THE PAGE
+//   CHIMES, one quiet chime per page change dealt by THE DECK RULE from pagechimes.js's 50 (fetched on demand)
 // SOUND_PULSE / soundPulseShape / soundPulse / registerPulseTarget - pulse.js: the sound's answer to a radial pulse
 // WOBBLE / createWobble / wobbleDepth / soundWobble / onSoundHit  - pulse.js: THE WOBBLE, the other direction (lane
 //                                                               SOUNDSHAKE): the waves a visitor starts wobble THE DJ
@@ -62,6 +64,9 @@ export { CLICK_LOCK, lockRng, createClickLock } from './clicklock.js';
 // their triggers: the page load and page change, one radial click lock in four, the machine's random waves
 export { SFX_FILES, SFX_DECKS, sfxDecks, loadSfxModules, sfxLoaded, sfxById } from './sfx-decks.js';
 export { SFX, shareDeck, sfxBag, nextSfx, playSfx, createClickCards, sfxPage, armSfx, onSfx, resetSfx } from './sfx.js';
+// THE PAGE CHIMES (lane PAGECHIMES): 50 quiet chimes, one per page change; the table itself (pagechimes.js) loads on
+// demand through loadPageChimes() and is never in this index
+export { PAGE_CHIME, CHIME_KEY, readChimesOn, writeChimesOn, createChimeSwitch, pageChimes, addChimeVeto, loadPageChimes, chimesLoaded, chimeRefusal, playPageChime, pageChimeChange, onPageChime, resetPageChimes } from './pagechime.js';
 // THE SOUND'S ANSWER TO A RADIAL PULSE (lane RADIALPULSE): every playing channel brightens, swells and pans toward a
 // passing wave, within the limits; the page hands it the bus's wave
 export { SOUND_PULSE, soundPulseShape, pulseNodes, registerPulseTarget, pulseTargets, applyPulse, soundPulse, onPulseTargets, WOBBLE, wobbleEnvelope, wobbleDepth, createWobble, registerWobbleTarget, soundWobble, wobbleLevel, wobbleTargets, soundHit, onSoundHit } from './pulse.js';

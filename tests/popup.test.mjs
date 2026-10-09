@@ -28,7 +28,7 @@ test('the wiring: a document pointerdown while open, judged against the panel an
   assert.match(jsx, /document\.removeEventListener\('pointerdown', down\);/, 'the listener goes when it closes');
   assert.match(jsx, /if \(!open\) return undefined;/, 'listening only while open');
   assert.match(jsx, /if \(e\.key === 'Escape'\) closeTo\('escape'\);/);
-  assert.match(jsx, /<button type="button" className="dj-x" aria-label="close" onClick=\{\(\) => closeTo\('close'\)\}>×<\/button>/);
+  assert.match(jsx, /<button type="button" className="dj-x" aria-label=\{w\('close'\)\} onClick=\{\(\) => closeTo\('close'\)\}>×<\/button>/);
   assert.match(jsx, /const closeTo = \(type\) => \{ step\(\{ type \}\); toggleRef\.current\?\.focus\(\); \};/);
   assert.match(jsx, /useEffect\(\(\) => \{ if \(closeWhen\) step\(\{ type: 'dismiss' \}\); \}, \[closeWhen\]\);/);
   assert.doesNotMatch(jsx, /setOpen\(\(o\) => !o\)/, 'every toggle goes through the rule');

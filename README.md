@@ -39,8 +39,8 @@ cd settle-hear
 npm test
 ```
 
-Or add it to an app from its repository: `npm install github:triplesparkle/settle-hear`. The repository is
-private for now, so both need access until it is made public. It has no dependencies; React is an optional peer.
+Or add it to an app from its public repository: `npm install github:triplesparkle/settle-hear`. It is under the MIT
+licence (`LICENSE`). It has no dependencies; React is an optional peer.
 One test compares `src/deck.js` with settle-see's copy; it runs when a clone of settle-see sits beside this
 folder and is skipped otherwise. A path below that starts `runs/` or `wikis/` names a file in the research
 repository this package is developed in (a measurement under `SETTLE/runs/`, a study under the repository's
@@ -320,6 +320,51 @@ in a dev build: `?sfx=1` on the site (`devtools/sfxaudition/`). Tests: `tests/sf
 deck's shape and tone rules on the graph, the triggers) and ANIMEHIT's `tests/sfx.test.mjs` (every sound rendered by
 `tests/offline.mjs` and measured against the clicks).
 
+## THE PAGE CHIMES: one quiet chime per page change (pagechime.js, pagechimes.js)
+
+Fifty short, quiet sounds, one of which plays each time the visitor changes page, on top of the page's own sound
+(lane PAGECHIMES, 2026-10-09). Each is a recipe of plain parameters in `src/pagechimes.js`, played live; none is a
+recording.
+
+- **THE DJ'S PARTS.** Every pitched note is one of THE DJ's own instruments through `instruments.js` `playNote` (the
+  clear flute, the harp, the bells, the crystal, the lo-fi keys, the soft pluck), on THE DJ's scales from
+  `tuning.js` (`MODES`, `scaleMidi`, A = 432). Each note's velocity comes from `voice-fx.js` `INST_PEAK`, so every
+  voice reaches the same envelope peak. The breaths are the engine's own seeded noise (`engine.js` `noiseBuffer`)
+  through a band-pass. Four small voices of our own fill the rest under THE TONE RULES: a sine blip, a sine glide, a
+  breath, and a string harmonic.
+- **THE SIX FAMILIES.** FIGURE (22: two to four quick notes, "bing boop de doop"), SETTLE (8: hot notes scattered
+  high that cool onto the root), RECALL (6: a note and its softer echo, a cue and a reply), BLIP (6), BREATH (4),
+  HARMONIC (4). `PAGE_CHIME_RECIPES` lists them; `PAGE_CHIMES` is the same 50 in the sfx deck format (`deck:
+  'chime'`), so `tools/sfx_levels.py --mod ../src/pagechimes.js --exp PAGE_CHIMES` measures them as it is.
+- **SHAPE.** Every chime is 120 to 600 ms. One gate lifts from 0 over 4 ms and falls linearly to exactly 0 at the
+  recipe's end, with a fade of at least 60 ms, so a bell that would ring on is ended without a click.
+- **DISTINCT.** `recipeFingerprint` hashes every sounding field (never the name), and no two of the 50 share one.
+  Rendered, every pair stays under the decks' ruled likeness of 0.95 (`tests/offline.mjs`, max 0.939), and under it
+  in Chromium too (`tools/sfx_levels.py`, max 0.949).
+- **LEVEL.** `CHIME_TRIM_DB` brings each chime to -40.00 dBFS at the master input through the chime fader
+  (`PAGE_CHIME.level` 0.55), measured in Chromium's OfflineAudioContext by `python3 tools/pagechime_levels.py`. THE
+  DJ's quietest symphony voice (the crystal at velocity 0.6 through the symphony's fader 0.55) peaks at -33.87 dBFS,
+  so every chime sits 6.12 dB under it. Layered 50 ms after the loudest sword page card, the worst combined peak is
+  -27.93 dBFS against the click noises' cap of -20.56 dBFS. `tools/pagechime_levels.mjs` measures the same in node
+  (within 3 dB per chime); the test suite runs it. The binaural pair is never touched.
+- **THE TRIGGER.** `sfx.js` `sfxPage` hands every page change (a new page key, never the first load) to
+  `pageChimeChange`, after the page's own sound, so the chime lands `PAGE_CHIME.offsetMs` (50 ms, two flash lines)
+  behind it on THE MASTER BEAT's grid. The table is fetched on demand (`loadPageChimes`), 1.5 s after the first page.
+- **THE ROTATION.** THE DECK RULE: one `indexDeck` over the 50, a fresh seed per visit. A refused chime deals no
+  card. An audition by id (`playPageChime({ id, audition: true })`, the #/hear list) deals none either.
+- **SILENCE.** Nothing builds an AudioContext: with no engine, or before the visitor's first gesture, a chime is
+  refused. MUTE ALL, a master volume of 0, PAUSE ALL, a hidden page and the switch OFF refuse it, and `addChimeVeto`
+  lets the site add more (the hero's own sound pause). `chimeRefusal()` names the reason; `onPageChime` and the
+  window event `settle:pagechime` report every chime played or refused.
+- **ONE AT A TIME.** A newer chime fades the one still sounding to 0 over 30 ms at its own start, so rapid page
+  changes never stack. Cleanup waits run on THE SOUND CLOCK. A chime never ducks THE DJ.
+- **THE SWITCH.** `pageChimes` (`on`, `setOn`, `toggle`, `subscribe`), ON by default, kept for the visit in
+  sessionStorage under `settle-hear:pagechimes`.
+
+Tests: `tests/pagechimes.test.mjs` (the table, the shape, distinctness, the levels, the deck, the trigger, the
+silences, rapid changes, the switch, the audition) and `tests/pagechimes_start.test.mjs` (THE START RULE and PAUSE
+ALL, in its own process).
+
 ## The heartbeat: the hero step's sound (heartbeat.js)
 
 The navigator: "the LEFT and RIGHT keyboard keys make the HERO go next and previous! With a BADUMP! And a sound".
@@ -396,6 +441,12 @@ import { HeroSymphony } from 'settle-hear/react';
 <HeroSymphony stats={stats} playing={soundOn} />   // the sound, and the DJ's visualiser bottom left
 ```
 
+**THE DJ IN THE PAGE'S LANGUAGE.** `HeroSymphony` takes a `words` prop, a function `(en, vars) -> string`. It is called
+with the exact English templates in `react/lineWords.js`, for the line and for the big view a click on the line opens
+(lanes AUDITHOME and FINISHDJ, 2026-10-09); a site looks each one up and fills its `{values}`. Without the prop every
+word is English, as before. Names stay as they are: themes, moods, tunes and books, effects, drum and bass styles,
+keys and the set's tag. The set's tag is shown in the big view only, never on the line.
+
 | file | what it is |
 |---|---|
 | `src/tuning.js` | A = 432, the 40 Hz home, harmonics, the binaural pair, the mode's name |
@@ -408,6 +459,8 @@ import { HeroSymphony } from 'settle-hear/react';
 | `src/instruments.js` | flute, fiddle, harp, bells, crystal, drones, harmonics, the binaural pair |
 | `src/symphony.js` | the player: bar by bar on the audio clock, a dry channel for the binaural pair |
 | `react/Symphony.jsx` | useSymphony, HeroSymphony and the visualiser parts |
+| `react/words.js` | the words helpers HeroSymphony uses at runtime (`enWords`, `whyWords`, `splitWords`, `clip`) |
+| `react/lineWords.js` | every English template THE DJ line and its big view can show (`DJ_LINE_WORDS`, `DJ_VIEW_WORDS`, `DJ_WORDS`), for a site's catalogue |
 
 Everything a sound or visual designer needs, every knob and how to add a theme, a tune or an instrument:
 **`DESIGNER_GUIDE.md`** (English) and **`DESIGNER_GUIDE.ja.md`** (Japanese). Headphones are needed to hear a

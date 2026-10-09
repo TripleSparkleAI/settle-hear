@@ -55,7 +55,7 @@ export { playTag, barNotes, djTagRequests } from './dj-replay.js';
 export { SKIP, djSkipRequests, nextSet, replaySet, setIdOf, isNewSet, createSetHistory } from './dj-skip.js'; // lane DJSKIP
 export { VIEW_FORMAT, setView, grooveView, tuneView, barOfSet } from './dj-view.js'; // THE SET SEEN WHOLE (lane DJVISUAL)
 export { djVotes, votesFromTags, VOTE_LEAN } from './dj-votes.js';
-export { INFLUENCE, makeInfluence, influenceWeights, blendInfluence, createInfluenceWindow, describeInfluence } from './dj-influence.js';
+export { INFLUENCE, makeInfluence, influenceWeights, blendInfluence, createInfluenceWindow, describeInfluence, influenceSay } from './dj-influence.js';
 export { FX, FX_KEYS, fxOf } from './fx-index.js';
 export { HUM_RATES, HUM_MAX_LEVEL, HUM_VARIANTS } from './fx-hum.js';
 export { DRUM_KITS, DRUM_FAMILIES, DRUM_PATTERNS, playPattern } from './voice-drum-machines.js';

@@ -15,7 +15,8 @@
 //                                  for a click card, a deck over the 24 click noises and the 50 radial sounds; next()
 //                                  gives a click index (a number) or an sfx entry
 // sfxPage({ key, now })          - the page trigger: the first call is the page load (waits up to SFX.loadWaitMs for
-//                                  a running context, else lets it go), a later call with a new key is a page change
+//                                  a running context, else lets it go), a later call with a new key is a page change;
+//                                  each page change also hands one chime to pagechime.js (THE PAGE CHIMES)
 // armSfx({ win, seed, now })     - listen to settle-see's 'settle:pulse' and play a sword sound on the machine's own
 //                                  random waves (from 'sound'), one in SFX.machineShare, never closer than the gap
 // onSfx(fn)                      - fn(detail) after each sound; returns off()
@@ -48,6 +49,8 @@ import { sound } from './control.js';
 import { masterStartTime, masterGrid, masterNow } from './masterbeat.js';
 import { createBag, freshSeed } from './deck.js';
 import { sfxDecks, loadSfxModules } from './sfx-decks.js';
+import { pageChimeChange, loadPageChimes } from './pagechime.js'; // THE PAGE CHIMES (lane PAGECHIMES)
+import { soundAfter } from './soundclock.js';
 
 export const SFX = Object.freeze({
   level: 0.55, // the channel's fader: the clicks' (CLICK_TONE.level), so a sword and a click sit at one level
@@ -59,6 +62,7 @@ export const SFX = Object.freeze({
   loadWaitMs: 1500, // the page load waits this long for a running context, then lets its sound go
   loadDelayMs: 120, // after the context runs, a breath before the load sound
   pageGapMs: 700, // two page changes closer than this play once
+  chimeLoadMs: 1500, // after the page load, fetch THE PAGE CHIMES' table (no sound), well past the first paint
   strength: Object.freeze({ load: 0.6, page: 0.5, machine: 0.4 }),
 });
 
@@ -189,15 +193,21 @@ export function sfxPage({ key = null, now = clock } = {}) {
   if (page.key === undefined) {
     page = { key, at: t, loading: true };
     waitAndPlay(SFX.loadWaitMs, now);
+    soundAfter(SFX.chimeLoadMs, () => { loadPageChimes(); }); // the chimes' table, on demand (pagechime.js)
     return 'load';
   }
   if (key === page.key) return null;
   const quick = t - page.at < SFX.pageGapMs;
   page = { ...page, key, at: t };
-  if (quick) return null;
   const E = engine.getEngine();
-  if (!E || engine.gestureWaiting()) return null; // a refused page: no sound until the visitor's own gesture
-  return playSfx({ deck: 'sword', strength: SFX.strength.page, reason: 'page', page: true }) ? 'page' : null;
+  // a refused page (no engine, or the browser waiting for the visitor's own gesture) plays no sound
+  const played = !quick && E && !engine.gestureWaiting() ? playSfx({ deck: 'sword', strength: SFX.strength.page, reason: 'page', page: true }) : null;
+  // THE PAGE CHIMES (lane PAGECHIMES): every page change hands one chime to pagechime.js, on top of the page sound
+  // just played; asked after it, so the chime's flash line is never earlier than the sound's and it lands
+  // PAGE_CHIME.offsetMs behind. It has its own rules (the switch, MUTE ALL, the gesture, at most one at a time) and
+  // is not held back by SFX.pageGapMs: a newer chime cuts the older one instead
+  pageChimeChange({ key });
+  return played ? 'page' : null;
 }
 
 function waitAndPlay(waitMs, now) {

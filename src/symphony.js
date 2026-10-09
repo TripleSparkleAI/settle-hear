@@ -123,7 +123,7 @@ import { encodeTag, decodeTag, situationOf } from './dj-tag.js';
 import { playTag as rebuildTag, djTagRequests } from './dj-replay.js';
 import { djSkipRequests } from './dj-skip.js'; // NEXT AND PREVIOUS FOR THE DJ'S SETS (lane DJSKIP)
 import { djVotes, votesFromTags, VOTE_LEAN } from './dj-votes.js';
-import { describeInfluence } from './dj-influence.js';
+import { describeInfluence, influenceSay } from './dj-influence.js';
 import { OPENER, OPENER_RATES, GAMMA_RATE, settleOpener, openerPlan, openerSlotAt, openerVoices, openerVisit, readOpenerMemory, writeOpenerMemory } from './opener.js';
 import { encodeOpenerTag, isOpenerTag, decodeOpenerTag } from './opener-tag.js';
 import { rackOf } from './mix-rack.js';
@@ -513,7 +513,7 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
       bassStyle: h.bassStyle,
       texture: h.texture,
       hum: h.hum,
-      influence: { count: h.influence.window.length, decay: h.influence.decay, words: describeInfluence(h.influence.window) },
+      influence: { count: h.influence.window.length, decay: h.influence.decay, words: describeInfluence(h.influence.window), say: influenceSay(h.influence.window) },
       votes: voteLeans ? { n: voteLeans.n } : { n: 0 },
       // THE TRAINED DJ (lane DJWIRE): which brain plays, and the trained set's family, block and feel
       brain: h.brain ?? 'old',

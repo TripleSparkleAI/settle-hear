@@ -265,8 +265,7 @@
 .dj-abc summary { cursor: pointer; }
 .dj-meter--inline { display: inline-block; width: 5em; vertical-align: middle; }
 .dj-tag { word-break: break-all; }
-.dj-line__tag { white-space: nowrap; }
-@media (max-width: 560px) { .dj-line__tag { display: none; } }
+/* the set's tag lives in the big view only (lane FINISHDJ): the line no longer draws it */
 /* the open DJ view sits above the rate line and its glyphs (lane SETTLEDJ: they drew over the panel at 390) */
 .dj.dj--open { z-index: 12; }
 /* THE OPENING BLEND (lane OPENINGSET): the arc's slots, the one playing now in the DJ's highlight */

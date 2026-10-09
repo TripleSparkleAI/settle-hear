@@ -9,7 +9,8 @@
 //                             the .dj root's empty box is outside
 // djRoom({lineTop, lineBottom, boundTop, boundBottom, above, margin, min}) - the panel's max height: from the top
 //                             bound to the line when it opens above, from the line to the bottom bound below
-// djHeadline({modeName, beat, carrier, status, fallback}) - the panel's title and its one dim line under it
+// djHeadline({modeName, beat, carrier, status, fallback, words}) - the panel's title and its one dim line under it;
+//                             words(en, vars) gives the line in the page's language (lane FINISHDJ), English by default
 // traceColumns(n)           - the p-bit track's columns: one 4 to 14 px column a sweep, never wider than its sweeps
 //
 // ** Technical Review **
@@ -50,10 +51,13 @@ export function djRoom({ lineTop = 0, lineBottom = 0, boundTop = 0, boundBottom 
 
 const hz1 = (f) => (Number.isFinite(f) ? f.toFixed(1) : null);
 
-export function djHeadline({ modeName = null, beat = null, carrier = null, status = '', fallback = 'THE DJ' } = {}) {
+const fillEn = (en, vars) => (vars ? String(en).replace(/\{(\w+)\}/g, (m, k) => (vars[k] == null ? m : String(vars[k]))) : String(en));
+
+export function djHeadline({ modeName = null, beat = null, carrier = null, status = '', fallback = 'THE DJ', words = null } = {}) {
+  const w = typeof words === 'function' ? words : fillEn;
   const sub = [
-    Number.isFinite(beat) ? `${beat} Hz beat` : null,
-    hz1(carrier) != null ? `carrier ${hz1(carrier)} Hz` : null,
+    Number.isFinite(beat) ? w('{beat} Hz beat', { beat }) : null,
+    hz1(carrier) != null ? w('carrier {hz} Hz', { hz: hz1(carrier) }) : null,
     status || null,
   ].filter(Boolean).join(' · ');
   return { title: modeName || fallback, sub };

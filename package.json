@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "SETTLE's hearing library: the sound of p-bits settling, mapped from the physics, with presets, a mixer and effects",
+  "license": "MIT",
   "type": "module",
   "main": "src/index.js",
   "exports": {

@@ -40,7 +40,9 @@
 //                              palette; .remember(spec) takes a replayed palette as the last one; .last
 // paletteOfTune(seed, theme, slots) - the palette a tag without a voice block gets, from its tune seed
 // defaultVoice(slot)         - a part's fallback voice when no palette names it (still three effects, or the clear flute)
-// chainLine(voice)           - one voice in plain words ("lo-fi keys: warm drive, tape wow, warm room")
+// chainLine(voice, words)    - one voice in plain words ("lo-fi keys: warm drive, tape wow, warm room"); words(en)
+//                              gives the instrument and "clear, no effects" in a page's language (lane FINISHDJ);
+//                              the effect names stay as they are
 // createVoiceBuses(ctx, out, slots, { trim }) - the parts' buses, each built on its first note: { input(slot, t0),
 //                              palette(P, t0, fade, info), voiceOf(slot), mute(slot, on, t0), muted(slot), states(),
 //                              dispose() }; a muted slot's bus is born muted when it is built later
@@ -427,10 +429,12 @@ export function defaultVoice(slot) {
   return realizeVoice(1, slotIndex(slot), { slot, inst, keys: ['drift-filter', 'warm-room'], profile: OPENER_VOICE_SLOTS.includes(slot) ? 'gentle' : JAM_SLOTS.includes(slot) ? 'free' : 'full' });
 }
 
-export function chainLine(v) {
+export function chainLine(v, words = null) {
   if (!v) return '';
-  const who = INST_LABEL[v.inst] ?? v.inst;
-  if (!v.chain?.length) return `${who}: clear, no effects`;
+  // words is a function only when a caller passes one: as a map callback the second argument is the index
+  const say = typeof words === 'function' ? words : (en) => en;
+  const who = say(INST_LABEL[v.inst] ?? v.inst);
+  if (!v.chain?.length) return `${who}: ${say('clear, no effects')}`;
   return `${who}: ${v.chain.map((c) => (rackOf(c.key)?.label ?? c.key).toLowerCase()).join(', ')}`;
 }
 

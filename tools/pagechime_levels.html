@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>PAGECHIMES - offline levels in the browser</title>
+<!--
+  THE PAGE CHIMES' LEVELS (lane PAGECHIMES), rendered in Chromium's own OfflineAudioContext, as tools/djfx_levels.html
+  renders THE DJ'S DESK. Driven by tools/pagechime_levels.py. Every number is a peak at the master's input: after a
+  channel's fader, before the master gain and the limiter, which every sound on the page shares.
+  - dj: THE DJ's symphony voices (symphony.js velocities) one note each through the symphony's fader 0.55
+  - raw: every chime with no trim (its peak before the fader), for the trim table
+  - chimes: every chime as shipped (its trim) through PAGE_CHIME.level
+  - layered: every sword-deck card at the page strength through the sfx fader, alone and with the loudest chime
+    PAGE_CHIME.offsetMs later through the chime fader; and the loudest click noise through the clicks' fader (the cap)
+-->
+<script type="module">
+import { PAGE_CHIMES } from '../src/pagechimes.js';
+import { PAGE_CHIME } from '../src/pagechime.js';
+import { playNote } from '../src/instruments.js';
+import { midiHz } from '../src/tuning.js';
+import { CLICK_NOISES, CLICK_TONE } from '../src/clicks.js';
+import { SFX } from '../src/sfx.js';
+import { SWORD_SWISH } from '../src/sfx-sword-swish.js';
+import { SWORD_HIT } from '../src/sfx-sword-hit.js';
+
+const SR = 48000;
+const AT = 0.05;
+const db = (x) => (x > 0 ? 20 * Math.log10(x) : -999);
+const DJ = [['flute', 0.85, 81], ['fiddle', 0.6, 69], ['harp', 0.6, 72], ['bells', 0.5, 84], ['crystal', 0.6, 96]];
+
+async function peakOf(secs, build) {
+  const ctx = new OfflineAudioContext(2, Math.ceil(SR * secs), SR);
+  build(ctx);
+  const buf = await ctx.startRendering();
+  let p = 0;
+  for (let c = 0; c < 2; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) p = Math.max(p, Math.abs(d[i])); }
+  return db(p);
+}
+const fader = (ctx, lvl) => { const g = ctx.createGain(); g.gain.value = lvl; g.connect(ctx.destination); return g; };
+
+const dj = [];
+for (const [inst, vel, midi] of DJ) dj.push({ inst, vel, midi, peakDb: await peakOf(3.5, (ctx) => playNote(ctx, fader(ctx, 0.55), inst, midiHz(midi), AT, 0.5, vel)) });
+const raw = [];
+const chimes = [];
+for (const e of PAGE_CHIMES) {
+  raw.push({ id: e.id, peakDb: await peakOf(e.dur + 0.3, (ctx) => e.render(ctx, AT, ctx.destination, { strength: 1, raw: true })) });
+  chimes.push({ id: e.id, family: e.family, masterDb: await peakOf(e.dur + 0.3, (ctx) => e.render(ctx, AT, fader(ctx, PAGE_CHIME.level), { strength: 1 })) });
+}
+const loud = chimes.reduce((a, b) => (b.masterDb > a.masterDb ? b : a));
+const chime = PAGE_CHIMES.find((e) => e.id === loud.id);
+let worst = { id: null, alone: -999, both: -999 };
+for (const s of [...SWORD_SWISH, ...SWORD_HIT]) {
+  const secs = Math.min(1.6, s.dur) + 0.9;
+  const sword = (ctx) => s.render(ctx, AT, fader(ctx, SFX.level), { strength: SFX.strength.page, seed: 1 });
+  const alone = await peakOf(secs, sword);
+  const both = await peakOf(secs, (ctx) => { sword(ctx); chime.render(ctx, AT + PAGE_CHIME.offsetMs / 1000, fader(ctx, PAGE_CHIME.level), { strength: 1 }); });
+  if (both > worst.both) worst = { id: s.id, alone, both };
+}
+let cap = -999;
+for (const n of CLICK_NOISES) cap = Math.max(cap, await peakOf(2, (ctx) => n.play(ctx, fader(ctx, CLICK_TONE.level), AT, { strength: 1 })));
+window.__result = { dj, raw, chimes, layered: { chime: loud.id, worst, capDb: cap } };
+document.body.textContent = 'done';
+</script>
