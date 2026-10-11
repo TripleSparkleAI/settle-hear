@@ -290,3 +290,24 @@ test('the opener\'s limiter adds no gain: unity slope for quiet signals, never a
   assert.ok(Math.abs(0.8 * Math.tanh(0.15 / 0.8) - 0.15) / 0.15 < 0.012);
   assert.ok(0.8 * Math.tanh(OPENER.maxSum / 0.8) < 0.8);
 });
+
+// LEVEL-MATCHED TO THE TRAINED SETS (lane RECDJ, the 2026-10-12 sweep's D1): measured in a build with tools/dj_soak.py
+// (DJ MODE, no moves), the opener's median sat at -26.8 dBFS and the first trained set's at -15.4, so the set entered
+// about 11 dB louder ("the audio builds up"). One plain gain after the opener's soft clip lifts it to the sets; after
+// the change the medians read -15.3 and -15.5 (SETTLE/runs/recdj/). The limiter itself is unchanged (test above).
+test('the opener is level-matched to the trained sets: one plain makeup gain after its limiter, before the channel (RECDJ D1)', () => {
+  assert.equal(OPENER.makeupDb, 11);
+  const ctx = new Ctx();
+  const out = ctx.createGain();
+  // every gain and waveshaper the opener makes, so the chain into `out` can be read
+  const made = [];
+  for (const k of ['createGain', 'createWaveShaper']) { const f = ctx[k].bind(ctx); ctx[k] = (...a) => { const n = f(...a); made.push(n); return n; }; }
+  openerVoices(ctx, out, openerPlan(settleOpener({ seed: 5 })), { startAt: 0 });
+  // what feeds `out` directly: the makeup alone, and the limiter (a waveshaper) feeds the makeup
+  const feeders = made.filter((n) => n.out?.has(out));
+  assert.equal(feeders.length, 1, 'one node feeds the channel');
+  const makeup = feeders[0];
+  assert.ok(Math.abs(makeup.gain?.value - 10 ** (11 / 20)) < 1e-9, `a gain of +11 dB (x${(10 ** (11 / 20)).toFixed(3)}) feeds the channel`);
+  const lim = made.find((n) => n.curve && n.out?.has(makeup));
+  assert.ok(lim, 'the soft-clip limiter feeds the makeup, so the gain never pushes the pure tones into the curve');
+});

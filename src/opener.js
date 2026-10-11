@@ -5,7 +5,8 @@
 // <claudes_code_comments>
 // ** Function List **
 // OPENER                     - the fixed numbers: the length range (240 to 420 s), the handover range (24 to 40 s),
-//                              the yield fade, the level ceilings, the pulse shapes, the settle's cooling
+//                              the yield fade, the level ceilings, the makeup gain after the limiter, the pulse
+//                              shapes, the settle's cooling
 // OPENER_SLOTS               - THE ARC: seven slots in a fixed order, each { key, label, line, share: [lo, hi] }
 // OPENER_RATES               - the three slow rates the rate slots hold: alpha 10, theta 6, schumann 7.83 (Hz), with
 //                              their sources; GAMMA_RATE 40 (Hz), always in the gamma slot
@@ -61,7 +62,12 @@
 //   cancels ahead and ramps every voice from its value now to 0 over the fade.
 // - THE LEVELS: every voice's own oscillator or buffer peaks at 1; the envelopes' sum never exceeds OPENER.maxSum
 //   (0.62); the voices pass the opener's own limiter (a soft clip y = 0.8 tanh(x / 0.8): unity for quiet signals, no
-//   makeup gain) and then the channel, the master, MUTE ALL and the page limiter like every sound here.
+//   gain of its own) and then the channel, the master, MUTE ALL and the page limiter like every sound here.
+// - LEVEL-MATCHED TO THE TRAINED SETS (lane RECDJ, the 2026-10-12 sweep's D1): after the limiter one plain gain,
+//   OPENER.makeupDb, brings the opener up to the sets that follow it. Measured in a build (tools/dj_soak.py, DJ MODE,
+//   no moves) before it: the opener's median -26.7 dBFS and the first trained set's -15.4, a step of about 12 dB when
+//   the set took over ("the audio builds up"). The gain sits after the soft clip, so the pure tones are not
+//   distorted, and the page limiter after the master still holds every peak.
 // - THE BELLS' CHAIN (lane MELODYFX2): the bloom's pentatonic bells are the one voice here that carries a tune, so
 //   they ring through a voice chain like every melody: a soft tape drive (the tape curve at drive 1.2 to 1.5, no
 //   makeup, so a 0.045 bell stays in the curve's straight part) and two to four calm effects from the 'gentle'
@@ -99,6 +105,7 @@ export const OPENER = Object.freeze({
   gammaOnMs: 12.5,
   gammaRampMs: 3,
   ceiling: 0.8,
+  makeupDb: 11,
 });
 
 // THE ARC: the order never changes; each slot's share of the length is settled inside its range
@@ -332,7 +339,11 @@ export function openerVoices(ctx, out, plan, { startAt = ctx.currentTime } = {})
   const lim = mk(ctx.createWaveShaper());
   lim.curve = softClipCurve(OPENER.ceiling);
   bus.connect(lim);
-  lim.connect(out);
+  // LEVEL-MATCHED (lane RECDJ, D1): one plain gain after the limiter, so the opener meets the trained sets' loudness
+  const makeup = mk(ctx.createGain());
+  makeup.gain.value = 10 ** (OPENER.makeupDb / 20);
+  lim.connect(makeup);
+  makeup.connect(out);
   const gains = {};
   const freqs = [];
   const waveOf = (key) => {

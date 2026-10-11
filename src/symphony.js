@@ -1033,6 +1033,16 @@ export function createSymphony({ seed, theme = null, level = 0.55, playing = tru
 
   function tick(at) {
     if (dead) return;
+    // PAUSE ALL HOLDS THE SET (lane RECDJ, the sweep's D2): held, no bar is decided on any clock, so the set keeps its
+    // bar and its opener keeps its place; letting go plays on from the next bar line. Before, the schedule moved to
+    // the wall clock and ran on in silence (held 60 s, a set went from bar 11 to bar 41 unheard). A hidden tab and
+    // MUTE ALL still play on, as before.
+    if (isAway()) {
+      if (onAudioClock && soundLogOn()) soundLog('sym:clock', { to: 'held' }); // SOUNDLOG
+      onAudioClock = false;
+      nextBar = null;
+      return;
+    }
     // move to the audio clock once it exists and sound can play
     if (E && !onAudioClock && audible() && soundLogOn()) soundLog('sym:clock', { to: 'audio', ctxTime: +E.ctx.currentTime.toFixed(3) }); // SOUNDLOG
     if (onAudioClock && !audible() && E && soundLogOn()) soundLog('sym:clock', { to: 'wall', playing: isPlaying, audible: sound.audible, hidden: typeof document !== 'undefined' && document.hidden }); // SOUNDLOG
